@@ -1,107 +1,156 @@
 # Integración con Chatwoot (responder manual desde el inbox)
 
-Decisión tomada: **Opción A** de `pendientes-e-ideas.md` — Chatwoot pasa a ser
-el dueño real del canal de WhatsApp (habla directo con Meta), y
-`whatsapp_hellokreo` se convierte en su **Agent Bot**. Así cualquier agente
-puede entrar al inbox de Chatwoot y responder manualmente en cualquier
-momento, no solo mirar una copia de la conversación.
+**Estado: implementado y verificado en producción (2026-09-11).**
 
-Chatwoot corre self-hosted en el VPS del usuario: `https://chat.hellokreo.com`.
+Decisión tomada: **Opción A** de `pendientes-e-ideas.md` — Chatwoot es el
+dueño real del canal de WhatsApp (habla directo con Meta), y
+`whatsapp_hellokreo` es su **Agent Bot**. Cualquier agente puede entrar al
+inbox de Chatwoot y responder manualmente en cualquier momento, no solo mirar
+una copia de la conversación.
 
-## Estado del código (ya hecho, 2026-09-11)
+Chatwoot corre self-hosted en el VPS del usuario: `https://chat.hellokreo.com`
+(`169.58.242.99`, contenedores Docker en `/opt/chatwoot`: `chatwoot-rails-1`,
+`chatwoot-sidekiq-1`, `chatwoot-postgres-1`, `chatwoot-redis-1`). Esta
+instancia es **compartida** con otros negocios — la cuenta `Account.find(1)`
+se llama "Hellokreo" y ya tenía inboxes tipo `Channel::Api` (solo espejo, de
+solo lectura) para WhatsApp de parkingplus e Instagram de Angú y Conect Spa.
+Este proyecto agregó el primer inbox **nativo** (habla directo con Meta) a
+esa misma cuenta.
+
+## Recursos creados en Chatwoot
+
+| Recurso | Id | Nombre |
+|---|---|---|
+| Account | 1 | Hellokreo |
+| Channel::Whatsapp | 1 | provider `whatsapp_cloud` |
+| Inbox | 4 | WhatsApp Hellokreo |
+| AgentBot | 1 | Kreo AI |
+
+Creados con un script `rails runner` corrido por SSH en el VPS (ver
+`## Cómo se creó` abajo) — no por la UI, para poder controlar exactamente los
+IDs y confirmar cada paso contra el código fuente de Chatwoot antes de
+tocar la cuenta compartida.
+
+## Código (`whatsapp_hellokreo`)
 
 - `chatwoot.js` — `sendChatwootMessage(conversationId, content)`, llama a
   `POST /api/v1/accounts/{account_id}/conversations/{conversation_id}/messages`
   con el header `api_access_token` del bot.
 - `conversationEngine.js` — la lógica de IA (genérico + flujo DEMO) se separó
-  de `app.js` para que la usen tanto `/webhook` (Meta directo) como
+  de `app.js` para que la usen tanto `/webhook` (Meta directo, respaldo) como
   `/chatwoot-bot` (vía Chatwoot), sin duplicar código.
 - `app.js` → `POST /chatwoot-bot`: recibe los eventos que Chatwoot reenvía al
   Agent Bot. Solo responde si:
   - `event === "message_created"`
-  - `message_type === "incoming"` (mensaje del cliente, no de un agente)
+  - `message_type === "incoming"` (mensaje del cliente, no de un agente ni el
+    eco del propio bot)
   - `conversation.status === "pending"` — si un agente humano ya tomó la
     conversación (la pasó a "open"), el bot se queda callado.
-  - Protegido con un secreto compartido (`CHATWOOT_BOT_SHARED_SECRET`, ya
-    generado y guardado en `.env`) como query param `?secret=...` en la
-    `outgoing_url` del bot — Chatwoot no firma estos webhooks por defecto, así
-    que esto evita que cualquiera le pegue a este endpoint y gaste cuota de
-    Gemini.
+  - Protegido con un secreto compartido (`CHATWOOT_BOT_SHARED_SECRET`) como
+    query param `?secret=...` en la `outgoing_url` del bot — Chatwoot no firma
+    estos webhooks por defecto.
 - La ruta vieja `/webhook` (Meta → nosotros directo) se deja intacta como
-  respaldo/prueba, pero deja de recibir tráfico real en cuanto el webhook de
-  Meta se reapunte a Chatwoot (paso 2 abajo).
+  respaldo, pero ya no recibe tráfico real: Meta ahora manda los eventos de
+  este número a Chatwoot (ver siguiente sección — es automático, no fue un
+  paso manual en el panel de Meta).
 
-## Pasos pendientes en Chatwoot (los hace el usuario, tiene Super Admin)
+## Cómo se creó (vía SSH, `rails runner`, no por la UI)
 
-### 1. Crear el inbox de WhatsApp Cloud API en Chatwoot
-
-Settings → Inboxes → Add Inbox → WhatsApp → API Provider "Cloud API". Completar
-con las mismas credenciales que ya están en `.env` de este proyecto:
-`WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_BUSINESS_ACCOUNT_ID`,
-`WHATSAPP_ACCESS_TOKEN`. Chatwoot muestra la URL de webhook que le corresponde
-a este inbox.
-
-### 2. Reapuntar el webhook de Meta hacia Chatwoot
-
-En developers.facebook.com → App → WhatsApp → Configuración → Webhooks:
-cambiar la Callback URL de `https://whatsapp-hellokreo.vercel.app/webhook`
-a la URL que dio Chatwoot en el paso 1. Volver a verificar y a suscribirse al
-campo `messages` (son dos pasos separados — ver `whatsapp-setup.md`).
-
-**Ojo:** desde este momento, `whatsapp_hellokreo` deja de recibir mensajes de
-Meta directamente — todo pasa por Chatwoot.
-
-### 3. Crear el Agent Bot
-
-`https://chat.hellokreo.com/super_admin/agent_bots` → nuevo bot:
-
-- Nombre: `Kreo AI` (o el que prefieras)
-- `outgoing_url`: `https://whatsapp-hellokreo.vercel.app/chatwoot-bot?secret=<valor de CHATWOOT_BOT_SHARED_SECRET en .env>`
-
-### 4. Copiar el access_token del bot
-
-`https://chat.hellokreo.com/super_admin/access_tokens` → buscar el bot recién
-creado → copiar su token.
-
-### 5. Asignar el bot al inbox de WhatsApp
-
-Abrir el inbox creado en el paso 1 → Configuración → sección de bot (dropdown
-para elegir Agent Bot) → seleccionar `Kreo AI` → Guardar. Si esa opción no
-aparece en la UI de este self-hosted, se puede hacer por consola Rails del VPS:
+Se inspeccionó primero el código fuente de Chatwoot dentro del contenedor
+(`docker exec chatwoot-rails-1 cat app/models/channel/whatsapp.rb`, etc.) para
+confirmar el shape exacto de `provider_config` y qué dispara automáticamente
+la creación del canal, **antes** de tocar la cuenta compartida:
 
 ```ruby
-bot = AgentBot.find_by(name: "Kreo AI")
-AgentBotInbox.create!(inbox: Inbox.find_by(name: "<nombre del inbox de WhatsApp>"), agent_bot: bot)
+account = Account.find(1)
+
+channel = Channel::Whatsapp.create!(
+  account: account,
+  phone_number: "+584226773234",
+  provider: "whatsapp_cloud",
+  provider_config: {
+    "api_key" => "<WHATSAPP_ACCESS_TOKEN>",
+    "phone_number_id" => "1279012775299913",
+    "business_account_id" => "2946719125671648"
+  }
+)
+
+inbox = Inbox.create!(name: "WhatsApp Hellokreo", account: account, channel: channel)
+InboxMember.find_or_create_by!(inbox: inbox, user: User.find(1))
+
+bot = AgentBot.create!(
+  account: account,
+  name: "Kreo AI",
+  outgoing_url: "https://whatsapp-hellokreo.vercel.app/chatwoot-bot?secret=<CHATWOOT_BOT_SHARED_SECRET>"
+)
+AgentBotInbox.create!(inbox: inbox, agent_bot: bot)
 ```
 
-### 6. Pasarme dos datos
+Corrido así (el archivo se pasa por stdin, `rails runner` no ve archivos del
+host dentro del contenedor):
 
-- `CHATWOOT_ACCOUNT_ID` — el número que aparece en la URL al estar dentro de
-  la cuenta, ej. `https://chat.hellokreo.com/app/accounts/123/...` → es `123`.
-- El `access_token` del bot (paso 4).
+```bash
+cd /opt/chatwoot
+docker compose exec -T rails bundle exec rails runner - < setup_hellokreo_channel.rb
+```
 
-Con eso completo `CHATWOOT_ACCOUNT_ID` y `CHATWOOT_BOT_ACCESS_TOKEN` en el
-`.env` local y en las variables de entorno de Vercel, redeploy, y probamos
-escribiendo "DEMO" al número real para confirmar que llega por Chatwoot.
+### Por qué esto NO requirió tocar el panel de Meta manualmente
+
+`Channel::Whatsapp` tiene un hook `after_commit :setup_webhooks, on: :create`
+(`app/models/channel/whatsapp.rb`) que llama a
+`Whatsapp::WebhookSetupService`, el cual:
+
+1. `POST /{waba_id}/subscribed_apps` — suscribe la app (dueña del token) a la
+   WABA.
+2. `POST /{phone_number_id}/...` — hace un **override del callback a nivel de
+   número de teléfono** (`override_phone_number_callback` en
+   `app/services/whatsapp/facebook_api_client.rb`), apuntándolo a
+   `{FRONTEND_URL}/webhooks/whatsapp/{phone_number}` de Chatwoot.
+
+El override es por número, no cambia la Callback URL global de la App en
+developers.facebook.com — por eso no hubo que ir al panel de Meta a mano.
+También registró (`register_phone_number`) solo si hacía falta; en este caso
+el log mostró `Phone number ... code verification status: true`, así que no
+tuvo que re-registrar nada.
+
+**Reversible:** `Channel::Whatsapp` tiene `before_destroy :teardown_webhooks`
+— borrar el canal debería revertir el override y devolver el número al
+comportamiento por defecto (Callback URL de la App, es decir, volvería a
+`whatsapp_hellokreo`/`app.js` → `/webhook`).
+
+## Verificado en producción
+
+Mensaje real de WhatsApp → Chatwoot → `POST /chatwoot-bot` → Gemini →
+`sendChatwootMessage` → Chatwoot → WhatsApp → llegó al celular del usuario.
+Log de Vercel: `Mensaje entrante (Chatwoot): { conversationId: 95, content: 'Hola esto es una prueba' }`.
 
 ## Cómo se hace el handoff humano en el día a día
 
 - Mientras la conversación esté en estado **"pending"**, el bot responde.
-- Un agente que quiera tomarla manualmente: le basta con **cambiar el estado a
-  "open"** (o Chatwoot puede hacerlo automático al asignarla a un agente,
-  según la configuración del inbox) — el bot deja de responder ahí.
+- Un agente que quiera tomarla manualmente: entra a `chat.hellokreo.com` →
+  inbox "WhatsApp Hellokreo" → esa conversación → cambia el estado a
+  **"open"** (o Chatwoot lo hace solo al escribir una respuesta, según la
+  configuración) — el bot deja de responder ahí.
 - Para devolvérsela al bot: volver el estado a "pending".
 
-## Qué queda sin resolver todavía
+## Qué queda sin resolver
 
-- No se implementó lógica para otros campos del payload de Chatwoot
-  (`sender`, `inbox`) — el código asume el shape documentado públicamente
-  (`event`, `message_type`, `content`, `conversation.id`,
-  `conversation.status`, `conversation.contact`). Si el payload real trae
-  algo distinto, el primer mensaje de prueba lo va a mostrar en
-  `vercel logs` (se loguea `conversationId` y `content` de cada mensaje
-  entrante).
+- No se probó todavía el caso de handoff en vivo (agente cambia a "open" y
+  confirma que el bot se calla) — la lógica está implementada
+  (`conversation.status === "pending"` como condición) pero falta la prueba
+  manual.
+- El payload real de Chatwoot trae más campos de los que usamos
+  (`sender`, `inbox`, etc.) — el código solo lee `event`, `message_type`,
+  `content`, `conversation.id`, `conversation.status`, `conversation.contact`.
+  Suficiente para lo que hace hoy; si se necesita el nombre del contacto real
+  de WhatsApp (no solo el número) para el aviso a `TEAM_NOTIFY_PHONE`, revisar
+  qué trae `conversation.contact` o `conversation.meta.sender` en un payload
+  real (se logueó `conversationId` y `content` únicamente, no el payload
+  completo).
 - `TEAM_NOTIFY_PHONE` (aviso de lead agendado) sigue yendo por WhatsApp directo
   vía Graph API (`whatsapp.js`), no por Chatwoot — es una notificación interna,
-  no parte de la conversación con el cliente, así que no hace falta que pase
-  por Chatwoot.
+  no parte de la conversación con el cliente.
+- El flujo "DEMO" no se volvió a probar end-to-end sobre este nuevo camino
+  (sí se probó el genérico) — las claves de conversación ahora son
+  `cw-{conversation.id}` en vez del número de teléfono, pero la lógica de
+  `conversationEngine.js` es la misma que ya se probó por `/webhook`.

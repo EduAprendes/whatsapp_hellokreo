@@ -9,9 +9,7 @@
 
 ## Responder manualmente desde Chatwoot
 
-Decisión ya tomada (2026-09-11): Opción A (Chatwoot como dueño del canal,
-`whatsapp_hellokreo` como su Agent Bot) — código implementado, pasos de
-configuración en el panel de Chatwoot documentados en
-[`chatwoot-integracion.md`](./chatwoot-integracion.md). Falta que el usuario
-complete esos pasos en `chat.hellokreo.com` y pase de vuelta
-`CHATWOOT_ACCOUNT_ID` y el `access_token` del bot.
+**Hecho (2026-09-11).** Chatwoot es el dueño del canal, `whatsapp_hellokreo`
+es su Agent Bot, probado end-to-end en producción. Detalle completo,
+incluyendo qué falta pulir (probar el handoff en vivo, el flujo DEMO sobre
+este camino), en [`chatwoot-integracion.md`](./chatwoot-integracion.md).
