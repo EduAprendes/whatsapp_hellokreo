@@ -1,18 +1,23 @@
 const { generateDemoReply } = require("./ai");
 const { getConversation } = require("./conversations");
 
-// Logica compartida por las dos vias de entrada de mensajes:
-//  - /webhook       (Meta -> nosotros directo, camino original)
-//  - /chatwoot-bot  (Meta -> Chatwoot -> nosotros como Agent Bot)
+// Logica compartida por todas las vias de entrada de mensajes:
+//  - /webhook            (Meta -> nosotros directo, camino original de WhatsApp)
+//  - /chatwoot-bot        (WhatsApp via Chatwoot) — DEMO corre siempre, sin trigger.
+//  - /chatwoot-bot/instagram (Instagram via Chatwoot) — requiere la palabra
+//    clave "DEMO" para arrancar (canal mas general, sin la senal de interes
+//    previo que si tiene alguien escribiendole al WhatsApp de la agencia).
 // `key` identifica la conversacion (numero de telefono o id de conversacion
-// de Chatwoot, segun la via). WhatsApp Hellokreo siempre corre el guion
-// "DEMO" (docs/plan-agentes-ia-ventas.md, Fase 2) — quien escribe aca ya
-// esta interesado en el servicio, no hace falta la palabra clave (esa se
-// reserva para Instagram, un canal mas general donde si aplica el trigger).
-// Devuelve el texto a responder y, si el lead quedo agendado en este turno,
-// los datos para avisar al equipo.
-async function handleIncomingText(key, text) {
+// de Chatwoot). Devuelve el texto a responder (null si todavia no corresponde
+// responder nada, ej. Instagram sin trigger) y, si el lead quedo agendado en
+// este turno, los datos para avisar al equipo.
+async function handleIncomingText(key, text, { requireTrigger = false } = {}) {
   const conversation = getConversation(key);
+
+  if (requireTrigger && !conversation.triggered) {
+    if (!/\bdemo\b/i.test(text)) return { reply: null, scheduledLead: null };
+    conversation.triggered = true;
+  }
 
   conversation.history.push({ role: "user", text });
 

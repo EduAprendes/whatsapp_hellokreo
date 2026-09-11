@@ -95,15 +95,17 @@ app.post("/webhook", verifyMetaSignature, (req, res) => {
   }
 });
 
-// Agent Bot de Chatwoot: Chatwoot es quien habla con Meta (inbox de WhatsApp
-// Cloud API); a nosotros nos reenvia cada mensaje entrante mientras la
-// conversacion siga en estado "pending". Si un agente humano la toma (la pasa
-// a "open"), dejamos de responder ahi — ver docs/pendientes-e-ideas.md.
-async function handleChatwootMessage(conversation, content) {
+// Agent Bot de Chatwoot: Chatwoot es quien habla con Meta (inboxes de
+// WhatsApp Cloud API e Instagram); a nosotros nos reenvia cada mensaje
+// entrante mientras la conversacion siga en estado "pending". Si un agente
+// humano la toma (la pasa a "open"), dejamos de responder ahi — ver
+// docs/pendientes-e-ideas.md. En Instagram, ademas, no se responde nada
+// hasta que aparece la palabra clave "DEMO" (requireTrigger).
+async function handleChatwootMessage(conversation, content, { requireTrigger } = {}) {
   console.log("Mensaje entrante (Chatwoot):", { conversationId: conversation.id, content });
   try {
     const key = `cw-${conversation.id}`;
-    const { reply, scheduledLead } = await handleIncomingText(key, content);
+    const { reply, scheduledLead } = await handleIncomingText(key, content, { requireTrigger });
     if (reply) await sendChatwootMessage(conversation.id, reply);
     if (scheduledLead) {
       const contactName = conversation.contact?.name || conversation.meta?.sender?.name;
@@ -119,18 +121,27 @@ async function handleChatwootMessage(conversation, content) {
 // en el codigo de Chatwoot) sin avisar en ningun otro lado mas que un mensaje
 // de actividad en el hilo. Por eso respondemos 200 de una vez y el trabajo de
 // verdad (Gemini + enviar la respuesta) sigue en segundo plano con waitUntil.
-app.post("/chatwoot-bot", (req, res) => {
-  if (CHATWOOT_BOT_SHARED_SECRET && req.query.secret !== CHATWOOT_BOT_SHARED_SECRET) {
-    return res.sendStatus(401);
-  }
+function chatwootBotHandler({ requireTrigger }) {
+  return (req, res) => {
+    if (CHATWOOT_BOT_SHARED_SECRET && req.query.secret !== CHATWOOT_BOT_SHARED_SECRET) {
+      return res.sendStatus(401);
+    }
 
-  const { event, message_type: messageType, content, conversation } = req.body || {};
-  res.sendStatus(200);
+    const { event, message_type: messageType, content, conversation } = req.body || {};
+    res.sendStatus(200);
 
-  // conversation.status !== "pending" -> un humano ya la tomo, no respondemos.
-  if (event === "message_created" && messageType === "incoming" && content && conversation?.status === "pending") {
-    waitUntil(handleChatwootMessage(conversation, content));
-  }
-});
+    // conversation.status !== "pending" -> un humano ya la tomo, no respondemos.
+    if (event === "message_created" && messageType === "incoming" && content && conversation?.status === "pending") {
+      waitUntil(handleChatwootMessage(conversation, content, { requireTrigger }));
+    }
+  };
+}
+
+// WhatsApp Hellokreo: el guion "DEMO" corre siempre, sin trigger.
+app.post("/chatwoot-bot", chatwootBotHandler({ requireTrigger: false }));
+
+// Instagram (cuenta reutilizada de conect_spa_test): requiere la palabra
+// clave "DEMO" para arrancar — ver docs/instagram-integracion.md.
+app.post("/chatwoot-bot/instagram", chatwootBotHandler({ requireTrigger: true }));
 
 module.exports = app;
