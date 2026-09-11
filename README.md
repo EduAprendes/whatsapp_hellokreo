@@ -18,7 +18,11 @@ npm run dev
 - [x] Número de producción registrado y verificado (envío/recepción probados por curl)
 - [x] Token permanente del Usuario del sistema cargado en `.env`
 - [x] App Secret cargado en `.env`
-- [ ] Validación de `X-Hub-Signature-256` implementada en el webhook
-- [ ] Webhook desplegado y suscrito en Meta
+- [x] Validación de `X-Hub-Signature-256` implementada en el webhook
+- [x] Webhook desplegado en Vercel y suscrito en Meta (campo `messages`)
+- [x] Lógica de IA (Gemini 2.5 Flash) conectada a los mensajes entrantes
+- [x] Flujo "escribe DEMO" (docs/plan-agentes-ia-ventas.md, Fase 2): presentación, calificación (2-3 preguntas), captura de lead (nombre/negocio/horario) y aviso al equipo — probado localmente end-to-end
 - [ ] Plantilla propia aprobada (necesaria para iniciar conversación sin que el cliente escriba primero)
-- [ ] Lógica de IA conectada a los mensajes entrantes
+- [ ] Agendamiento real en Google Calendar (credenciales ya ubicadas en `conect_spa_test`) — hoy el flujo DEMO solo captura el horario propuesto, no crea el evento
+- [ ] Notificación al equipo por WhatsApp: falta configurar `TEAM_NOTIFY_PHONE` en el `.env` de Vercel (hoy solo se loguea)
+- [ ] El estado de la conversación vive en memoria (`conversations.js`) — se pierde en cada cold start de Vercel; pasar a una base de datos si el volumen lo justifica

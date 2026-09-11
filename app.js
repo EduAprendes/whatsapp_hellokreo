@@ -2,7 +2,11 @@ require("dotenv").config();
 const crypto = require("crypto");
 const express = require("express");
 
-const { WHATSAPP_WEBHOOK_VERIFY_TOKEN, WHATSAPP_APP_SECRET } = process.env;
+const { generateReply, generateDemoReply } = require("./ai");
+const { sendWhatsAppText } = require("./whatsapp");
+const { getConversation } = require("./conversations");
+
+const { WHATSAPP_WEBHOOK_VERIFY_TOKEN, WHATSAPP_APP_SECRET, TEAM_NOTIFY_PHONE } = process.env;
 
 const app = express();
 
@@ -49,18 +53,59 @@ function verifyMetaSignature(req, res, next) {
   next();
 }
 
-// Mensajes entrantes de WhatsApp.
-app.post("/webhook", verifyMetaSignature, (req, res) => {
+// Aviso al equipo (paso 7 del flujo "DEMO"): por ahora solo un WhatsApp a un
+// número interno, si está configurado. El agendamiento real en Google
+// Calendar (credenciales ya ubicadas en conect_spa_test) queda pendiente.
+async function notifyTeam(lead, fromPhone) {
+  console.log("Lead calificado y agendado:", { fromPhone, ...lead });
+  if (!TEAM_NOTIFY_PHONE) return;
+  const msg = `Nuevo lead del flujo DEMO:\nNombre: ${lead.name}\nNegocio: ${lead.business}\nHorario propuesto: ${lead.preferredTime}\nWhatsApp: ${fromPhone}`;
+  await sendWhatsAppText(TEAM_NOTIFY_PHONE, msg);
+}
+
+// Mensajes entrantes de WhatsApp. Se responde 200 al final (no antes): en
+// Vercel, la funcion puede congelarse apenas se envia la respuesta, asi que
+// el trabajo de la IA y el envio tienen que terminar primero.
+app.post("/webhook", verifyMetaSignature, async (req, res) => {
   const entry = req.body?.entry?.[0];
   const change = entry?.changes?.[0]?.value;
   const message = change?.messages?.[0];
 
-  if (message) {
-    console.log("Mensaje entrante:", {
-      from: message.from,
-      type: message.type,
-      text: message.text?.body,
-    });
+  if (message?.type === "text") {
+    const text = message.text.body;
+    console.log("Mensaje entrante:", { from: message.from, text });
+
+    try {
+      const conversation = getConversation(message.from);
+
+      // docs/plan-agentes-ia-ventas.md, Fase 2: escribir "DEMO" activa el
+      // guion de venta/calificación de la propia agencia.
+      if (conversation.mode === "generic" && /\bdemo\b/i.test(text)) {
+        conversation.mode = "demo";
+      }
+
+      conversation.history.push({ role: "user", text });
+
+      if (conversation.mode === "demo") {
+        const { reply, stage, lead } = await generateDemoReply(conversation.history);
+        if (reply) {
+          conversation.history.push({ role: "assistant", text: reply });
+          await sendWhatsAppText(message.from, reply);
+        }
+        if (stage === "scheduled" && !conversation.notified) {
+          conversation.notified = true;
+          await notifyTeam(lead, message.from);
+        }
+      } else {
+        const reply = await generateReply(text);
+        if (reply) {
+          conversation.history.push({ role: "assistant", text: reply });
+          await sendWhatsAppText(message.from, reply);
+        }
+      }
+    } catch (err) {
+      console.error("Error generando/enviando respuesta:", err.message);
+    }
   }
 
   res.sendStatus(200);
