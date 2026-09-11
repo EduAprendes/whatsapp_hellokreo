@@ -39,6 +39,15 @@ estricto:
 {"reply": "...", "stage": "intro" | "qualifying" | "not_qualified" | "scheduled", "lead": {"name": ..., "business": ..., "preferredTime": ...}}
 ```
 
+**Bug encontrado y arreglado (2026-09-11):** a veces el modelo devuelve
+casi-JSON con literales de Python (`None`/`True`/`False` en vez de
+`null`/`true`/`false`) — pasó en producción y el fallback de entonces mandó
+el JSON roto, tal cual, directo al cliente por Instagram. `parseDemoResponse()`
+en `ai.js` ahora intenta en orden: JSON normal → reparar esos literales y
+reintentar → extraer solo el campo `"reply"` a mano con regex → mensaje
+genérico de disculpa como último recurso. Nunca más debería verse JSON crudo
+en el chat de un cliente.
+
 `app.js` envía `reply` por WhatsApp, y si `stage === "scheduled"` (y no se había
 notificado antes, `conversation.notified`), llama a `notifyTeam(lead, fromPhone)`.
 
