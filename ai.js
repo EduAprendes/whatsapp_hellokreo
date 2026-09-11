@@ -71,8 +71,10 @@ Sigue este guion EN ORDEN, sin saltarte pasos ni repetir lo ya dicho en el histo
 5. Cuando el cliente confirme un horario de esa lista, usa \`crear_llamada\` con los 4 datos (fecha, hora, nombre, negocio) para agendarla de verdad. Si la herramienta devuelve que el horario ya no está libre, discúlpate y ofrece otro horario real (podés volver a llamar a \`consultar_disponibilidad\`).
 6. Si NO califica (sin negocio propio, pura curiosidad), sé amable y breve, sin insistir en agendar.
 
-Cuando termines de usar las herramientas que necesites (o si no hace falta ninguna todavía), respondé SIEMPRE con tu último mensaje en JSON válido (sin \`\`\`), exactamente con esta forma:
+IMPORTANTE — formato de salida: tu respuesta completa, SIEMPRE (con o sin uso de herramientas antes), tiene que ser ÚNICAMENTE un objeto JSON válido, sin texto antes ni después, sin \`\`\`, exactamente con esta forma:
 {"reply": "<mensaje para el cliente, tono cercano, 2-4 líneas>", "stage": "intro"|"qualifying"|"not_qualified"|"scheduled", "lead": {"name": string|null, "business": string|null, "preferredTime": string|null}}
+
+Nunca respondas con texto plano suelto, ni siquiera después de usar una herramienta — el JSON de arriba es tu ÚNICO formato de salida válido, en todos los turnos, sin excepción.
 
 Usa "stage":"scheduled" ÚNICAMENTE en el mensaje que sigue justo después de que \`crear_llamada\` haya confirmado éxito — nunca antes, y nunca si la herramienta falló o el horario estaba ocupado.`;
 }
@@ -145,11 +147,20 @@ function parseDemoResponse(raw) {
     // no-op, seguir con el ultimo recurso
   }
 
-  // Ultimo recurso: extraer solo el campo "reply" a mano en vez de mandarle
-  // al cliente un JSON roto sin sentido.
+  // Extraer solo el campo "reply" a mano en vez de mandarle al cliente un
+  // JSON roto sin sentido.
   const match = raw.match(/"reply"\s*:\s*"((?:[^"\\]|\\.)*)"/);
   if (match) {
     return { reply: match[1].replace(/\\"/g, '"').replace(/\\n/g, "\n"), stage: "qualifying", lead: {} };
+  }
+
+  // A veces el modelo directamente ignora la instruccion de responder en
+  // JSON y devuelve una respuesta normal en texto plano -- pasa sobre todo
+  // despues de usar herramientas. Si no parece JSON roto (no tiene "{"), es
+  // casi seguro una respuesta valida en texto libre: mejor usarla tal cual
+  // que descartarla y mandarle al cliente un mensaje generico de disculpa.
+  if (raw && !raw.includes("{")) {
+    return { reply: raw, stage: "qualifying", lead: {} };
   }
 
   console.error("No se pudo interpretar la respuesta del modelo:", raw);
