@@ -27,6 +27,60 @@ app.use(
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
 
+// Requerida por Meta para conectar productos de WhatsApp/Instagram (paso
+// "URL de política de privacidad" en developers.facebook.com).
+app.get("/privacy", (_req, res) => {
+  res.type("html").send(`<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <title>Política de privacidad — Kreo</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 640px; margin: 40px auto; padding: 0 16px; line-height: 1.6; color: #222; }
+    h1 { font-size: 1.4rem; }
+    h2 { font-size: 1.1rem; margin-top: 2rem; }
+  </style>
+</head>
+<body>
+  <h1>Política de privacidad — Kreo (Hellokreo)</h1>
+  <p>Última actualización: 11 de septiembre de 2026.</p>
+
+  <p>Este documento describe cómo tratamos la información que recibimos
+  cuando nos escribes por WhatsApp o Instagram al número/cuenta de
+  Hellokreo, incluida la demo automatizada de nuestro servicio de vendedor
+  digital 24/7.</p>
+
+  <h2>Qué datos recopilamos</h2>
+  <ul>
+    <li>El contenido de los mensajes que nos envías.</li>
+    <li>Tu número de WhatsApp o tu identificador de cuenta de Instagram.</li>
+    <li>Si nos los compartes durante la conversación: tu nombre, el nombre
+    de tu negocio y un horario de contacto preferido.</li>
+  </ul>
+
+  <h2>Para qué los usamos</h2>
+  <ul>
+    <li>Generar respuestas automáticas mediante un asistente de inteligencia
+    artificial (Google Gemini), como demostración de nuestro servicio.</li>
+    <li>Calificar tu interés y, si corresponde, coordinar una llamada con
+    alguien de nuestro equipo.</li>
+    <li>No vendemos tus datos ni los compartimos con terceros, salvo los
+    proveedores necesarios para operar este servicio (Meta, Google,
+    Chatwoot).</li>
+  </ul>
+
+  <h2>Cuánto tiempo conservamos tus datos</h2>
+  <p>El historial de la conversación se conserva mientras dure el
+  intercambio y un tiempo razonable después, para poder dar seguimiento.</p>
+
+  <h2>Tus derechos</h2>
+  <p>Puedes pedirnos en cualquier momento que eliminemos tu información
+  escribiéndonos a <a href="mailto:eurorondon03@gmail.com">eurorondon03@gmail.com</a>.</p>
+</body>
+</html>`);
+});
+
 // Paso 9 de la guía: handshake de verificación del webhook.
 app.get("/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
