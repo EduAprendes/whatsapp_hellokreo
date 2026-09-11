@@ -126,19 +126,30 @@ Log de Vercel: `Mensaje entrante (Chatwoot): { conversationId: 95, content: 'Hol
 
 ## Cómo se hace el handoff humano en el día a día
 
+Guía completa de uso en [`uso-chatwoot.md`](./uso-chatwoot.md), incluyendo
+cómo encontrar las conversaciones (el filtro por defecto de Chatwoot no las
+muestra). Resumen:
+
 - Mientras la conversación esté en estado **"pending"**, el bot responde.
+- **Solo mirar/leer una conversación no la desactiva** — hace falta la
+  acción explícita de presionar "Abrir" o "Tomar el control".
 - Un agente que quiera tomarla manualmente: entra a `chat.hellokreo.com` →
-  inbox "WhatsApp Hellokreo" → esa conversación → cambia el estado a
-  **"open"** (o Chatwoot lo hace solo al escribir una respuesta, según la
-  configuración) — el bot deja de responder ahí.
-- Para devolvérsela al bot: volver el estado a "pending".
+  esa conversación → botón **"Abrir"** o **"Tomar el control"** — el bot deja
+  de responder ahí.
+- **No hay reversión automática.** Para devolvérsela al bot hay que volver el
+  estado a "pending" a mano — verificado en producción (2026-09-11): tres
+  mensajes del cliente después del handoff se quedaron sin respuesta hasta
+  que se reseteó el estado manualmente.
+
+## Incidente conocido: el bot se apagaba solo por timeout
+
+El 2026-09-11 se encontró (y arregló) un bug donde Chatwoot desactivaba el
+bot automáticamente por un timeout del webhook, sin que nadie lo pidiera —
+ver [`incidente-timeout-webhook.md`](./incidente-timeout-webhook.md) para la
+causa raíz completa y el fix (`waitUntil` + respuesta inmediata).
 
 ## Qué queda sin resolver
 
-- No se probó todavía el caso de handoff en vivo (agente cambia a "open" y
-  confirma que el bot se calla) — la lógica está implementada
-  (`conversation.status === "pending"` como condición) pero falta la prueba
-  manual.
 - El payload real de Chatwoot trae más campos de los que usamos
   (`sender`, `inbox`, etc.) — el código solo lee `event`, `message_type`,
   `content`, `conversation.id`, `conversation.status`, `conversation.contact`.

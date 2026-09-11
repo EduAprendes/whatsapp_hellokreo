@@ -30,3 +30,4 @@ npm run dev
 - [ ] Notificación al equipo por WhatsApp: falta configurar `TEAM_NOTIFY_PHONE` en el `.env` de Vercel (hoy solo se loguea)
 - [ ] El estado de la conversación vive en memoria (`conversations.js`) — se pierde en cada cold start de Vercel; pasar a una base de datos si el volumen lo justifica
 - [x] Integración con Chatwoot (`/chatwoot-bot`) para responder manual desde el inbox: Chatwoot ya es dueño del canal (inbox "WhatsApp Hellokreo" en `chat.hellokreo.com`), Agent Bot creado y probado end-to-end en producción — ver [`docs/chatwoot-integracion.md`](./docs/chatwoot-integracion.md)
+- [x] Fix de timeout del webhook de Chatwoot (respuesta inmediata + procesamiento en segundo plano con `waitUntil`) — ver [`docs/incidente-timeout-webhook.md`](./docs/incidente-timeout-webhook.md)

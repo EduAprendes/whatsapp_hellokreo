@@ -10,6 +10,8 @@ número real de WhatsApp "Hellokreo" (+58 422-6773234) vía WhatsApp Cloud API.
 - [`flujo-demo.md`](./flujo-demo.md) — el guion de calificación de leads que se activa al escribir "DEMO".
 - [`pendientes-e-ideas.md`](./pendientes-e-ideas.md) — qué falta.
 - [`chatwoot-integracion.md`](./chatwoot-integracion.md) — integración con Chatwoot (Agent Bot) para responder manual desde el inbox: decisión tomada, código ya hecho, y pasos pendientes en el panel de Chatwoot.
+- [`uso-chatwoot.md`](./uso-chatwoot.md) — guía práctica del día a día: cómo encontrar conversaciones, cuándo se apaga/reactiva la IA, cómo tomar el control manual.
+- [`incidente-timeout-webhook.md`](./incidente-timeout-webhook.md) — incidente real (2026-09-11): Chatwoot apagaba el bot solo por timeout del webhook, causa raíz y fix aplicado.
 
 Documento externo relacionado: `D:\Euro\200-🌍AREAS\Kreo\WhatsApp 1\Guía desde cero — Configurar WhatsApp Cloud API.md` (guía genérica, reutilizable para otros proyectos con WhatsApp Cloud API — este `docs/` es específico de Hellokreo).
 
