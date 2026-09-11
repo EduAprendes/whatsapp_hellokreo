@@ -4,6 +4,9 @@ Proyecto para conectar la IA (vendedor 24/7) al número real de WhatsApp
 "Hellokreo" vía WhatsApp Cloud API (Meta), siguiendo
 [[200-🌍AREAS/Kreo/WhatsApp 1/Guía desde cero — Configurar WhatsApp Cloud API]].
 
+Documentación completa (setup de Meta, arquitectura, flujo DEMO, pendientes e
+ideas como responder manual desde Chatwoot): ver [`docs/`](./docs/README.md).
+
 ## Setup
 
 ```bash
