@@ -9,29 +9,25 @@ const { getConversation, saveConversation } = require("./conversations");
 //    previo que si tiene alguien escribiendole al WhatsApp de la agencia).
 // `key` identifica la conversacion (numero de telefono o id de conversacion
 // de Chatwoot). Devuelve el texto a responder (null si todavia no corresponde
-// responder nada, ej. Instagram sin trigger) y, si el lead quedo agendado en
-// este turno, los datos para avisar al equipo.
+// responder nada, ej. Instagram sin trigger) y, si se creo/reagendo/cancelo
+// una llamada real en este turno, los datos para avisar al equipo.
 async function handleIncomingText(key, text, { requireTrigger = false } = {}) {
   const conversation = await getConversation(key);
 
   if (requireTrigger && !conversation.triggered) {
-    if (!/\bdemo\b/i.test(text)) return { reply: null, scheduledLead: null };
+    if (!/\bdemo\b/i.test(text)) return { reply: null, notification: null };
     conversation.triggered = true;
   }
 
   conversation.history.push({ role: "user", text });
 
-  const { reply, stage, lead } = await generateDemoReply(conversation.history);
+  // generateDemoReply puede modificar conversation.bookedEvent (via las
+  // herramientas de calendario) -- se persiste despues, con esos cambios.
+  const { reply, calendarAction } = await generateDemoReply(conversation.history, conversation);
   if (reply) conversation.history.push({ role: "assistant", text: reply });
 
-  let scheduledLead = null;
-  if (stage === "scheduled" && !conversation.notified) {
-    conversation.notified = true;
-    scheduledLead = lead;
-  }
-
   await saveConversation(key, conversation);
-  return { reply, scheduledLead };
+  return { reply, notification: calendarAction };
 }
 
 module.exports = { handleIncomingText };

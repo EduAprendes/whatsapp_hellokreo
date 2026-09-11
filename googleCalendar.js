@@ -29,6 +29,7 @@ async function calendarFetch(path, options = {}) {
   if (!response.ok) {
     throw new Error(`Google Calendar respondio ${response.status}: ${await response.text()}`);
   }
+  if (response.status === 204) return null; // DELETE no devuelve body
   return response.json();
 }
 
@@ -66,6 +67,37 @@ async function createEventIfFree({ startISO, endISO, summary, description }) {
   return { created: true, eventId: event.id, htmlLink: event.htmlLink };
 }
 
+async function getEvent(eventId) {
+  return calendarFetch(`/calendars/${encodeURIComponent(GOOGLE_CALENDAR_ID)}/events/${eventId}`);
+}
+
+// Mueve un evento existente a un horario nuevo, solo si de verdad esta
+// libre. El propio horario actual del evento no cuenta como "ocupado" (si
+// no, nunca se podria reagendar nada).
+async function updateEventIfFree({ eventId, startISO, endISO }) {
+  const current = await getEvent(eventId);
+  const busy = await getBusyPeriods(startISO, endISO);
+  const realConflicts = busy.filter(
+    (b) => !(b.start === current.start?.dateTime && b.end === current.end?.dateTime)
+  );
+  if (realConflicts.length > 0) {
+    return { updated: false, reason: "horario_ocupado" };
+  }
+
+  const updated = await calendarFetch(`/calendars/${encodeURIComponent(GOOGLE_CALENDAR_ID)}/events/${eventId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ start: { dateTime: startISO }, end: { dateTime: endISO } }),
+  });
+  return { updated: true, eventId: updated.id, htmlLink: updated.htmlLink };
+}
+
+async function cancelEvent(eventId) {
+  await calendarFetch(`/calendars/${encodeURIComponent(GOOGLE_CALENDAR_ID)}/events/${eventId}`, {
+    method: "DELETE",
+  });
+  return { cancelled: true };
+}
+
 // Franjas libres de 30 min dentro del horario de atencion (9-18) para una
 // fecha dada, chequeadas contra el free/busy real del calendario. La IA
 // nunca debe inventar horarios — siempre pasa por acá.
@@ -89,4 +121,4 @@ async function listAvailableSlots(dateStr) {
   return slots;
 }
 
-module.exports = { getBusyPeriods, createEventIfFree, listAvailableSlots };
+module.exports = { getBusyPeriods, createEventIfFree, updateEventIfFree, cancelEvent, listAvailableSlots };

@@ -1,6 +1,6 @@
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const { businessNowText, businessDateTimeToISO } = require("./businessTime");
-const { listAvailableSlots, createEventIfFree } = require("./googleCalendar");
+const { listAvailableSlots, createEventIfFree, updateEventIfFree, cancelEvent } = require("./googleCalendar");
 
 const { GOOGLE_API_KEY } = process.env;
 
@@ -34,6 +34,25 @@ const TOOLS = [
           required: ["fecha", "hora", "nombre", "negocio"],
         },
       },
+      {
+        name: "reagendar_llamada",
+        description:
+          "Mueve la llamada ya agendada de este cliente a un horario nuevo, si sigue libre. Solo se puede usar si este cliente ya tiene una llamada agendada en la conversación.",
+        parameters: {
+          type: "OBJECT",
+          properties: {
+            fecha: { type: "STRING", description: "Nueva fecha en formato AAAA-MM-DD" },
+            hora: { type: "STRING", description: "Nueva hora en formato HH:mm, 24 horas" },
+          },
+          required: ["fecha", "hora"],
+        },
+      },
+      {
+        name: "cancelar_llamada",
+        description:
+          "Cancela la llamada ya agendada de este cliente. Solo se puede usar si este cliente ya tiene una llamada agendada en la conversación.",
+        parameters: { type: "OBJECT", properties: {} },
+      },
     ],
   },
 ];
@@ -57,7 +76,9 @@ function stripJsonFences(raw) {
 // está interesado en el servicio); en Instagram requiere la palabra clave
 // "DEMO" (canal más general, ver conversationEngine.js). El guion es:
 // presentación corta -> calificar (2-3 preguntas) -> si califica, buscar
-// disponibilidad real y agendar la llamada -> avisar al equipo.
+// disponibilidad real y agendar la llamada -> avisar al equipo. Si el
+// cliente ya tiene una llamada agendada (se ve en el historial), también
+// puede reagendarla o cancelarla en la misma conversación.
 function buildSystemPrompt() {
   return `Eres el vendedor digital 24/7 de Kreo, respondiendo por un canal directo de la propia agencia (WhatsApp o Instagram). Quien te escribe es un prospecto probando el producto en vivo, no un cliente que ya lo tiene instalado.
 
@@ -70,20 +91,24 @@ Sigue este guion EN ORDEN, sin saltarte pasos ni repetir lo ya dicho en el histo
 4. Para el horario: usa la herramienta \`consultar_disponibilidad\` con una fecha concreta (resuelve "mañana"/"el viernes" a AAAA-MM-DD vos mismo usando la fecha de hoy de arriba) y ofrécele 2-3 horarios reales de esa lista — nunca inventes un horario.
 5. Cuando el cliente confirme un horario de esa lista, usa \`crear_llamada\` con los 4 datos (fecha, hora, nombre, negocio) para agendarla de verdad. Si la herramienta devuelve que el horario ya no está libre, discúlpate y ofrece otro horario real (podés volver a llamar a \`consultar_disponibilidad\`). Si \`crear_llamada\` confirma éxito, tu mensaje solo confirma la reserva (día y hora) — NUNCA digas que mandaste un link o comprobante, el sistema lo agrega automáticamente después de tu mensaje.
 6. Si NO califica (sin negocio propio, pura curiosidad), sé amable y breve, sin insistir en agendar.
+7. Si el cliente YA tiene una llamada agendada (revisá el historial) y pide cambiar el horario: consultá disponibilidad de la fecha nueva y usá \`reagendar_llamada\` cuando confirme. Si pide cancelar: usá \`cancelar_llamada\` directo, sin pedir motivo. En ambos casos tu mensaje solo confirma el cambio — nunca prometas mandar un link o comprobante nuevo.
 
 IMPORTANTE — formato de salida: tu respuesta completa, SIEMPRE (con o sin uso de herramientas antes), tiene que ser ÚNICAMENTE un objeto JSON válido, sin texto antes ni después, sin \`\`\`, exactamente con esta forma:
-{"reply": "<mensaje para el cliente, tono cercano, 2-4 líneas>", "stage": "intro"|"qualifying"|"not_qualified"|"scheduled", "lead": {"name": string|null, "business": string|null, "preferredTime": string|null}}
+{"reply": "<mensaje para el cliente, tono cercano, 2-4 líneas>", "stage": "intro"|"qualifying"|"not_qualified"|"scheduled"|"rescheduled"|"cancelled", "lead": {"name": string|null, "business": string|null, "preferredTime": string|null}}
 
 Nunca respondas con texto plano suelto, ni siquiera después de usar una herramienta — el JSON de arriba es tu ÚNICO formato de salida válido, en todos los turnos, sin excepción.
 
-Usa "stage":"scheduled" ÚNICAMENTE en el mensaje que sigue justo después de que \`crear_llamada\` haya confirmado éxito — nunca antes, y nunca si la herramienta falló o el horario estaba ocupado.`;
+Usa "stage":"scheduled"/"rescheduled"/"cancelled" ÚNICAMENTE en el mensaje que sigue justo después de que la herramienta correspondiente haya confirmado éxito — nunca antes, y nunca si la herramienta falló.`;
 }
 
-// `onEventCreated` se llama cuando crear_llamada agenda de verdad — asi
-// generateDemoReply puede agregar el link real al mensaje sin depender de
-// que el modelo se acuerde de incluirlo (ya paso que decia "te mande el
-// link" sin haberlo escrito en ningun lado).
-async function callTool(name, args, onEventCreated) {
+// `conversation.bookedEvent` (si existe) es la llamada ya agendada de este
+// cliente — reagendar_llamada/cancelar_llamada operan sobre ese evento, no
+// sobre uno que la IA elija a mano. `calendarAction` se computa desde lo que
+// las herramientas realmente hicieron (no desde el "stage" que reporta el
+// modelo, que ya demostró no ser 100% confiable) — generateDemoReply lo usa
+// para agregar el link real y conversationEngine.js para decidir si avisar
+// al equipo.
+async function callTool(name, args, conversation, setCalendarAction) {
   if (name === "consultar_disponibilidad") {
     const slots = await listAvailableSlots(args.fecha);
     return { fecha: args.fecha, horarios_libres: slots };
@@ -98,7 +123,39 @@ async function callTool(name, args, onEventCreated) {
       summary: `Llamada demo Kreo — ${args.nombre} (${args.negocio})`,
       description: `Lead calificado por el flujo DEMO de Kreo. Negocio: ${args.negocio}.`,
     });
-    if (result.created) onEventCreated(result.htmlLink);
+    if (result.created) {
+      conversation.bookedEvent = { eventId: result.eventId, startISO, endISO, nombre: args.nombre, negocio: args.negocio };
+      setCalendarAction({ type: "created", link: result.htmlLink, startISO, lead: { name: args.nombre, business: args.negocio } });
+    }
+    return result;
+  }
+
+  if (name === "reagendar_llamada") {
+    if (!conversation.bookedEvent) return { error: "no_hay_llamada_agendada" };
+    const startISO = businessDateTimeToISO(args.fecha, args.hora);
+    const endISO = new Date(new Date(startISO).getTime() + 30 * 60 * 1000).toISOString();
+    const result = await updateEventIfFree({ eventId: conversation.bookedEvent.eventId, startISO, endISO });
+    if (result.updated) {
+      conversation.bookedEvent.startISO = startISO;
+      conversation.bookedEvent.endISO = endISO;
+      setCalendarAction({
+        type: "rescheduled",
+        link: result.htmlLink,
+        startISO,
+        lead: { name: conversation.bookedEvent.nombre, business: conversation.bookedEvent.negocio },
+      });
+    }
+    return result;
+  }
+
+  if (name === "cancelar_llamada") {
+    if (!conversation.bookedEvent) return { error: "no_hay_llamada_agendada" };
+    const lead = { name: conversation.bookedEvent.nombre, business: conversation.bookedEvent.negocio };
+    const result = await cancelEvent(conversation.bookedEvent.eventId);
+    if (result.cancelled) {
+      conversation.bookedEvent = null;
+      setCalendarAction({ type: "cancelled", lead });
+    }
     return result;
   }
 
@@ -107,16 +164,20 @@ async function callTool(name, args, onEventCreated) {
 
 const MAX_TOOL_STEPS = 6;
 
-async function generateDemoReply(history) {
+// `conversation` se pasa completo (no solo el historial) porque
+// reagendar_llamada/cancelar_llamada necesitan leer y actualizar
+// `conversation.bookedEvent` -- conversationEngine.js persiste el objeto
+// despues, con los cambios que haya hecho callTool durante este turno.
+async function generateDemoReply(history, conversation) {
   const model = getModel();
   const contents = history.map((turn) => ({
     role: turn.role === "user" ? "user" : "model",
     parts: [{ text: turn.text }],
   }));
 
-  let eventLink = null;
-  const onEventCreated = (link) => {
-    eventLink = link;
+  let calendarAction = null;
+  const setCalendarAction = (action) => {
+    calendarAction = action;
   };
 
   let result = await model.generateContent({ contents });
@@ -129,7 +190,7 @@ async function generateDemoReply(history) {
 
     const responses = await Promise.all(
       calls.map(async (call) => ({
-        functionResponse: { name: call.name, response: await callTool(call.name, call.args, onEventCreated) },
+        functionResponse: { name: call.name, response: await callTool(call.name, call.args, conversation, setCalendarAction) },
       }))
     );
     contents.push({ role: "function", parts: responses });
@@ -138,10 +199,10 @@ async function generateDemoReply(history) {
   }
 
   const parsed = parseDemoResponse(stripJsonFences(result.response.text()));
-  if (eventLink && parsed.stage === "scheduled" && parsed.reply) {
-    parsed.reply = `${parsed.reply}\n\n${eventLink}`;
+  if (calendarAction?.link && parsed.reply) {
+    parsed.reply = `${parsed.reply}\n\n${calendarAction.link}`;
   }
-  return parsed;
+  return { ...parsed, calendarAction };
 }
 
 // A veces el modelo devuelve casi-JSON con literales de Python (None/True/

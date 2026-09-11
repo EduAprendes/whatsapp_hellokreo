@@ -112,22 +112,36 @@ function verifyMetaSignature(req, res, next) {
   next();
 }
 
-// Aviso al equipo (paso 7 del flujo "DEMO"): por ahora solo un WhatsApp a un
-// número interno, si está configurado. El agendamiento real en Google
-// Calendar (credenciales ya ubicadas en conect_spa_test) queda pendiente.
-async function notifyTeam(lead, fromPhone) {
-  console.log("Lead calificado y agendado:", { fromPhone, ...lead });
+const NOTIFICATION_LABELS = {
+  created: "Nuevo lead agendado",
+  rescheduled: "Llamada reagendada",
+  cancelled: "Llamada cancelada",
+};
+
+// Aviso al equipo (paso 7 del flujo "DEMO" + reagendar/cancelar): por ahora
+// solo un WhatsApp a un número interno, si está configurado. `notification`
+// viene de un tool call real que tuvo éxito (ai.js), no de lo que el modelo
+// "dice" que pasó — ver docs/google-calendar-integracion.md.
+async function notifyTeam(notification, fromLabel) {
+  const { type, lead, startISO } = notification;
+  console.log(`${NOTIFICATION_LABELS[type]}:`, { fromLabel, ...lead, startISO });
   if (!TEAM_NOTIFY_PHONE) return;
-  const msg = `Nuevo lead del flujo DEMO:\nNombre: ${lead.name}\nNegocio: ${lead.business}\nHorario propuesto: ${lead.preferredTime}\nWhatsApp: ${fromPhone}`;
-  await sendWhatsAppText(TEAM_NOTIFY_PHONE, msg);
+
+  const lines = [`${NOTIFICATION_LABELS[type]} (flujo DEMO):`];
+  if (lead?.name) lines.push(`Nombre: ${lead.name}`);
+  if (lead?.business) lines.push(`Negocio: ${lead.business}`);
+  if (startISO) lines.push(`Horario: ${startISO}`);
+  lines.push(`Contacto: ${fromLabel}`);
+
+  await sendWhatsAppText(TEAM_NOTIFY_PHONE, lines.join("\n"));
 }
 
 async function handleMetaMessage(from, text) {
   console.log("Mensaje entrante (Meta directo):", { from, text });
   try {
-    const { reply, scheduledLead } = await handleIncomingText(from, text);
+    const { reply, notification } = await handleIncomingText(from, text);
     if (reply) await sendWhatsAppText(from, reply);
-    if (scheduledLead) await notifyTeam(scheduledLead, from);
+    if (notification) await notifyTeam(notification, from);
   } catch (err) {
     console.error("Error generando/enviando respuesta:", err.message);
   }
@@ -164,11 +178,11 @@ async function handleChatwootMessage(conversation, content, { requireTrigger } =
   console.log("Mensaje entrante (Chatwoot):", { conversationId: conversation.id, content });
   try {
     const key = `cw-${conversation.id}`;
-    const { reply, scheduledLead } = await handleIncomingText(key, content, { requireTrigger });
+    const { reply, notification } = await handleIncomingText(key, content, { requireTrigger });
     if (reply) await sendChatwootMessage(conversation.id, reply);
-    if (scheduledLead) {
+    if (notification) {
       const contactName = conversation.contact?.name || conversation.meta?.sender?.name;
-      await notifyTeam(scheduledLead, contactName || `conversacion ${conversation.id}`);
+      await notifyTeam(notification, contactName || `conversacion ${conversation.id}`);
     }
   } catch (err) {
     console.error("Error generando/enviando respuesta (Chatwoot):", err.message);

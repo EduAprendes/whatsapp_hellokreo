@@ -20,7 +20,10 @@ const redis = new Redis({
 const TTL_SECONDS = 60 * 60 * 48; // 48h -- alcanza para una conversacion de prueba/demo
 
 function defaultConversation() {
-  return { history: [], notified: false, triggered: false };
+  // bookedEvent: { eventId, startISO, endISO, nombre, negocio } una vez que
+  // crear_llamada agenda de verdad — permite reagendar/cancelar despues en
+  // la misma conversacion (ai.js).
+  return { history: [], notified: false, triggered: false, bookedEvent: null };
 }
 
 async function getConversation(key) {
