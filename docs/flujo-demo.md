@@ -1,18 +1,30 @@
-# Flujo "escribe DEMO"
+# Flujo "DEMO"
 
 Especificado en `docs/plan-agentes-ia-ventas.md` (proyecto `organizacion_asana`),
 Fase 2, tarea "Preparar demo funcional propia (flujo 'escribe DEMO')". Resumen:
 en vez de depender de llegar al dueño del negocio puerta fría, el propio
 WhatsApp de Kreo (Hellokreo) sirve de demo en vivo — el prospecto experimenta
-el producto en carne propia al escribir la palabra clave.
+el producto en carne propia.
+
+## Disparador: siempre activo en WhatsApp (2026-09-11)
+
+La idea original era activarlo solo si el texto contenía la palabra clave
+"DEMO" (pensado para un canal más general, como un anuncio que invita a
+"escribir DEMO"). Pero en WhatsApp Hellokreo, **cualquiera que escribe ya está
+interesado en el servicio** — no hace falta el trigger. Por eso el flujo corre
+siempre acá, sin condición (`conversationEngine.js` llama a
+`generateDemoReply` directo, no hay más un modo `"generic"`).
+
+La detección por palabra clave se guarda para cuando se conecte Instagram
+(canal más general, sin esa señal de intención previa) — hoy no está
+implementada en este proyecto, solo documentada como idea.
 
 ## Guion (implementado en `ai.js` → `DEMO_SYSTEM_PROMPT` / `generateDemoReply`)
 
-1. **Disparador:** el texto entrante contiene la palabra "demo" (case-insensitive, `\bdemo\b`) → `conversations.js` cambia el `mode` de esa conversación de `"generic"` a `"demo"`.
-2. **Presentación corta:** "vendedor digital 24/7", sin jerga técnica (nunca "IA", "bot", "automatización", "entrenamiento").
-3. **Calificación:** 2-3 preguntas cortas, una por mensaje — ¿tiene negocio propio?, ¿vende por WhatsApp/Instagram?, ¿siente que pierde clientes fuera de horario o por demoras en responder?
-4. **Agendar (si califica):** pide nombre, nombre del negocio, y un horario. Si no califica, cierra amable sin insistir.
-5. **Aviso al equipo:** en cuanto el modelo tiene los 3 datos (nombre + negocio + horario), marca `"stage": "scheduled"` y `app.js` llama a `notifyTeam()`.
+1. **Presentación corta:** "vendedor digital 24/7", sin jerga técnica (nunca "IA", "bot", "automatización", "entrenamiento").
+2. **Calificación:** 2-3 preguntas cortas, una por mensaje — ¿tiene negocio propio?, ¿vende por WhatsApp/Instagram?, ¿siente que pierde clientes fuera de horario o por demoras en responder?
+3. **Agendar (si califica):** pide nombre, nombre del negocio, y un horario. Si no califica, cierra amable sin insistir.
+4. **Aviso al equipo:** en cuanto el modelo tiene los 3 datos (nombre + negocio + horario), marca `"stage": "scheduled"` y `app.js` llama a `notifyTeam()`.
 
 ## Cómo está implementado
 
@@ -43,7 +55,7 @@ Resultado en logs: `Lead calificado y agendado: { fromPhone, name: 'Euro', busin
 
 ## Limitación conocida
 
-El estado (`mode`, historial, si ya se notificó) vive en un `Map` en memoria
+El estado (historial, si ya se notificó) vive en un `Map` en memoria
 (`conversations.js`). En Vercel esto se pierde en cada cold start — si el
 proceso se reinicia a media conversación, el prospecto podría recibir la
 presentación de nuevo en vez de continuar donde iba. Aceptable para el volumen
