@@ -60,17 +60,22 @@ clave).
     conversación — puede haber pasado tiempo, o la IA pudo equivocarse).
 - **`businessTime.js`** — fecha/hora actual del negocio (offset fijo, sin
   multi-timezone) y conversión `AAAA-MM-DD` + `HH:mm` → ISO real.
-- **`ai.js`** — dos herramientas nativas de Gemini (`tools:
+- **`ai.js`** — cuatro herramientas nativas de Gemini (`tools:
   [{functionDeclarations: [...]}]` al crear el modelo):
   - `consultar_disponibilidad(fecha)` → `listAvailableSlots`.
   - `crear_llamada(fecha, hora, nombre, negocio)` → `createEventIfFree`.
-  
-  `generateDemoReply` arma la conversación como `contents` (roles
-  `user`/`model`, no como transcript de texto plano como antes) y loopea
-  hasta 6 pasos: si la respuesta trae `functionCalls()`, ejecuta las
-  herramientas, agrega `functionResponse` a `contents`, y vuelve a llamar a
-  `generateContent`. Cuando ya no hay más llamadas a herramientas, el texto
-  final se parsea como el JSON de siempre (`reply`/`stage`/`lead`).
+  - `reagendar_llamada(fecha, hora)` → `updateEventIfFree` (mueve el mismo
+    evento, no crea uno nuevo — ver "Reagendar y cancelar" más abajo).
+  - `cancelar_llamada()` → `cancelEvent`.
+
+  `generateDemoReply(history, conversation)` recibe la conversación completa
+  (no solo el historial) porque reagendar/cancelar necesitan leer y
+  modificar `conversation.bookedEvent`. Arma la conversación como `contents`
+  (roles `user`/`model`) y loopea hasta 6 pasos: si la respuesta trae
+  `functionCalls()`, ejecuta las herramientas, agrega `functionResponse` a
+  `contents`, y vuelve a llamar a `generateContent`. Cuando ya no hay más
+  llamadas a herramientas, el texto final se parsea como el JSON de siempre
+  (`reply`/`stage`/`lead`).
 
   El `systemInstruction` ahora se genera dinámicamente en cada llamada
   (`buildSystemPrompt()`, no una constante) para poder inyectar la fecha/hora
@@ -109,22 +114,53 @@ link al evento en el chat para que lo guardes"* — sin que ningún link
 apareciera en ningún lado. El modelo confirmaba la acción sin haber incluido
 el dato real.
 
-**Fix:** `crear_llamada` ahora avisa a `generateDemoReply` (vía un callback)
-cuando el evento se creó de verdad, con su `htmlLink`. El código agrega ese
-link real al final del mensaje cuando `stage === "scheduled"` — ya no
-depende de que el modelo se acuerde de incluirlo. El prompt también le dice
+**Fix:** `crear_llamada` (y ahora también `reagendar_llamada`) avisan a
+`generateDemoReply` cuando la herramienta tuvo éxito de verdad, vía un
+callback (`setCalendarAction`). El código agrega el link real al final del
+mensaje cuando ese callback se disparó — **ya no depende de `stage`**, que
+resultó no ser confiable (ver siguiente sección). El prompt también le dice
 explícitamente que no prometa mandar un link, que el sistema lo agrega solo.
 Confirmado con una prueba local end-to-end: el link real llega en el
 mensaje final.
+
+## Reagendar y cancelar (2026-09-11)
+
+Al principio solo existía `crear_llamada` — si el cliente pedía cambiar el
+horario en la misma conversación, la IA no tenía forma de modificar el
+evento ya creado. En el mejor caso volvía a llamar a `crear_llamada`,
+**duplicando el evento** en vez de moverlo.
+
+Se agregó `conversation.bookedEvent` (persistido en Redis junto al resto del
+estado — ver `persistencia-redis.md`) que guarda `{eventId, startISO,
+endISO, nombre, negocio}` apenas `crear_llamada` agenda de verdad. Las
+herramientas nuevas operan sobre ESE evento:
+
+- `reagendar_llamada(fecha, hora)` → `updateEventIfFree({eventId, ...})` —
+  hace un `PATCH` sobre el mismo evento (mismo `id`, confirmado comparando
+  el link antes/después de reagendar en la prueba). Antes de mover el
+  evento, chequea disponibilidad real del horario nuevo — pero el propio
+  horario ACTUAL del evento no cuenta como "ocupado" contra sí mismo (si no,
+  nunca se podría reagendar nada).
+- `cancelar_llamada()` → `cancelEvent(eventId)` — `DELETE` real del evento,
+  y `conversation.bookedEvent` vuelve a `null`.
+
+**El aviso al equipo dejó de depender del `stage`** que reporta el modelo
+(demostró no ser confiable — ver los bugs de arriba) y pasó a depender de
+`calendarAction`, un objeto que `ai.js` solo genera cuando una herramienta
+de calendario tuvo éxito de verdad este turno (`{type: "created" |
+"rescheduled" | "cancelled", lead, startISO, link}`). `notifyTeam()` en
+`app.js` arma un mensaje distinto para cada tipo.
+
+Probado end-to-end en local: agendar (9:00) → reagendar (12:00, mismo event
+id) → cancelar → confirmado que ambos horarios quedan libres de nuevo en el
+calendario real.
 
 ## Pendiente
 
 - Probar un caso real de **horario ocupado** (pedir un horario, que
   `crear_llamada` devuelva `horario_ocupado`, y confirmar que la IA ofrece
   una alternativa en vez de trabarse).
-- El resumen que se manda a `notifyTeam()` sigue usando `lead.preferredTime`
-  (texto libre generado por el modelo) como fuente — no el horario
-  estructurado real del evento creado. Funciona porque el modelo es
-  consistente, pero no hay garantía dura de que coincidan exactamente.
 - Horario de atención (9:00-18:00, L-V) hardcodeado en `googleCalendar.js`
   — si cambia, hay que editar el código.
+- `reagendar_llamada`/`cancelar_llamada` solo se probaron en local, no con
+  un cliente real por WhatsApp/Instagram todavía.
