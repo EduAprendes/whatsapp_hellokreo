@@ -68,7 +68,7 @@ Sigue este guion EN ORDEN, sin saltarte pasos ni repetir lo ya dicho en el histo
 2. Califica con 2-3 preguntas cortas, UNA por mensaje (no las amontones): ¿tiene negocio propio?, ¿vende por WhatsApp o Instagram?, ¿siente que pierde clientes fuera de horario o por demoras en responder?
 3. Si califica (tiene negocio, vende por esos canales, y reconoce el problema), ofrece agendar una llamada corta con una persona real del equipo. Pide su nombre y el nombre de su negocio si todavía no los tienes.
 4. Para el horario: usa la herramienta \`consultar_disponibilidad\` con una fecha concreta (resuelve "mañana"/"el viernes" a AAAA-MM-DD vos mismo usando la fecha de hoy de arriba) y ofrécele 2-3 horarios reales de esa lista — nunca inventes un horario.
-5. Cuando el cliente confirme un horario de esa lista, usa \`crear_llamada\` con los 4 datos (fecha, hora, nombre, negocio) para agendarla de verdad. Si la herramienta devuelve que el horario ya no está libre, discúlpate y ofrece otro horario real (podés volver a llamar a \`consultar_disponibilidad\`).
+5. Cuando el cliente confirme un horario de esa lista, usa \`crear_llamada\` con los 4 datos (fecha, hora, nombre, negocio) para agendarla de verdad. Si la herramienta devuelve que el horario ya no está libre, discúlpate y ofrece otro horario real (podés volver a llamar a \`consultar_disponibilidad\`). Si \`crear_llamada\` confirma éxito, tu mensaje solo confirma la reserva (día y hora) — NUNCA digas que mandaste un link o comprobante, el sistema lo agrega automáticamente después de tu mensaje.
 6. Si NO califica (sin negocio propio, pura curiosidad), sé amable y breve, sin insistir en agendar.
 
 IMPORTANTE — formato de salida: tu respuesta completa, SIEMPRE (con o sin uso de herramientas antes), tiene que ser ÚNICAMENTE un objeto JSON válido, sin texto antes ni después, sin \`\`\`, exactamente con esta forma:
@@ -79,7 +79,11 @@ Nunca respondas con texto plano suelto, ni siquiera después de usar una herrami
 Usa "stage":"scheduled" ÚNICAMENTE en el mensaje que sigue justo después de que \`crear_llamada\` haya confirmado éxito — nunca antes, y nunca si la herramienta falló o el horario estaba ocupado.`;
 }
 
-async function callTool(name, args) {
+// `onEventCreated` se llama cuando crear_llamada agenda de verdad — asi
+// generateDemoReply puede agregar el link real al mensaje sin depender de
+// que el modelo se acuerde de incluirlo (ya paso que decia "te mande el
+// link" sin haberlo escrito en ningun lado).
+async function callTool(name, args, onEventCreated) {
   if (name === "consultar_disponibilidad") {
     const slots = await listAvailableSlots(args.fecha);
     return { fecha: args.fecha, horarios_libres: slots };
@@ -88,12 +92,14 @@ async function callTool(name, args) {
   if (name === "crear_llamada") {
     const startISO = businessDateTimeToISO(args.fecha, args.hora);
     const endISO = new Date(new Date(startISO).getTime() + 30 * 60 * 1000).toISOString();
-    return createEventIfFree({
+    const result = await createEventIfFree({
       startISO,
       endISO,
       summary: `Llamada demo Kreo — ${args.nombre} (${args.negocio})`,
       description: `Lead calificado por el flujo DEMO de Kreo. Negocio: ${args.negocio}.`,
     });
+    if (result.created) onEventCreated(result.htmlLink);
+    return result;
   }
 
   return { error: "herramienta_desconocida" };
@@ -108,6 +114,11 @@ async function generateDemoReply(history) {
     parts: [{ text: turn.text }],
   }));
 
+  let eventLink = null;
+  const onEventCreated = (link) => {
+    eventLink = link;
+  };
+
   let result = await model.generateContent({ contents });
 
   for (let step = 0; step < MAX_TOOL_STEPS; step++) {
@@ -118,7 +129,7 @@ async function generateDemoReply(history) {
 
     const responses = await Promise.all(
       calls.map(async (call) => ({
-        functionResponse: { name: call.name, response: await callTool(call.name, call.args) },
+        functionResponse: { name: call.name, response: await callTool(call.name, call.args, onEventCreated) },
       }))
     );
     contents.push({ role: "function", parts: responses });
@@ -126,7 +137,11 @@ async function generateDemoReply(history) {
     result = await model.generateContent({ contents });
   }
 
-  return parseDemoResponse(stripJsonFences(result.response.text()));
+  const parsed = parseDemoResponse(stripJsonFences(result.response.text()));
+  if (eventLink && parsed.stage === "scheduled" && parsed.reply) {
+    parsed.reply = `${parsed.reply}\n\n${eventLink}`;
+  }
+  return parsed;
 }
 
 // A veces el modelo devuelve casi-JSON con literales de Python (None/True/
