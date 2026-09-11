@@ -39,14 +39,27 @@ estricto:
 {"reply": "...", "stage": "intro" | "qualifying" | "not_qualified" | "scheduled", "lead": {"name": ..., "business": ..., "preferredTime": ...}}
 ```
 
-**Bug encontrado y arreglado (2026-09-11):** a veces el modelo devuelve
-casi-JSON con literales de Python (`None`/`True`/`False` en vez de
-`null`/`true`/`false`) — pasó en producción y el fallback de entonces mandó
-el JSON roto, tal cual, directo al cliente por Instagram. `parseDemoResponse()`
-en `ai.js` ahora intenta en orden: JSON normal → reparar esos literales y
-reintentar → extraer solo el campo `"reply"` a mano con regex → mensaje
-genérico de disculpa como último recurso. Nunca más debería verse JSON crudo
-en el chat de un cliente.
+**Dos bugs de parseo encontrados y arreglados en producción (2026-09-11),
+ambos por el mismo motivo de fondo — el modelo no siempre respeta el
+formato JSON pedido, sobre todo después de usar una herramienta:**
+
+1. A veces devuelve casi-JSON con literales de Python (`None`/`True`/`False`
+   en vez de `null`/`true`/`false`) — el fallback de entonces mandaba el
+   JSON roto, tal cual, directo al cliente.
+2. A veces ignora el formato por completo y devuelve **texto plano normal**
+   (una respuesta perfectamente buena y coherente, ej. *"¡Excelente!
+   ¿Vendes tus chilenas por WhatsApp o Instagram?"*) — el fallback de
+   entonces la descartaba y mandaba un mensaje genérico de disculpa en su
+   lugar, pese a que la respuesta real servía tal cual.
+
+`parseDemoResponse()` en `ai.js` ahora intenta en orden: JSON normal →
+reparar literales de Python y reintentar → extraer solo el campo `"reply"`
+a mano con regex → **si el texto no contiene `"{"`, usarlo tal cual como
+respuesta** (ya no se descarta un texto libre válido) → mensaje genérico de
+disculpa como último recurso, solo si de verdad no se pudo rescatar nada.
+También se reforzó el prompt pidiendo el formato JSON de forma más
+enfática. Nunca más debería verse JSON crudo, ni perderse una respuesta
+válida en texto plano, en el chat de un cliente.
 
 `app.js` envía `reply` por WhatsApp, y si `stage === "scheduled"` (y no se había
 notificado antes, `conversation.notified`), llama a `notifyTeam(lead, fromPhone)`.

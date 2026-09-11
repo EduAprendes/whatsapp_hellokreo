@@ -28,7 +28,7 @@ npm run dev
 - [ ] Plantilla propia aprobada (necesaria para iniciar conversación sin que el cliente escriba primero)
 - [x] Agendamiento real en Google Calendar: la IA consulta disponibilidad real y crea el evento vía tool-calling de Gemini — ver [`docs/google-calendar-integracion.md`](./docs/google-calendar-integracion.md)
 - [ ] Notificación al equipo por WhatsApp: falta configurar `TEAM_NOTIFY_PHONE` en el `.env` de Vercel (hoy solo se loguea)
-- [ ] El estado de la conversación vive en memoria (`conversations.js`) — se pierde en cada cold start de Vercel; pasar a una base de datos si el volumen lo justifica
+- [x] Estado de la conversación persistido en Redis (Upstash) — antes vivía en memoria y se perdía en cada redeploy, y hasta por concurrencia normal (varias instancias de Vercel en paralelo) — ver [`docs/persistencia-redis.md`](./docs/persistencia-redis.md)
 - [x] Integración con Chatwoot (`/chatwoot-bot`) para responder manual desde el inbox: Chatwoot ya es dueño del canal (inbox "WhatsApp Hellokreo" en `chat.hellokreo.com`), Agent Bot creado y probado end-to-end en producción — ver [`docs/chatwoot-integracion.md`](./docs/chatwoot-integracion.md)
 - [x] Fix de timeout del webhook de Chatwoot: `keep_pending_on_bot_failure` activado + procesamiento síncrono (se probó `waitUntil` para responder rápido, pero perdía respuestas en silencio — revertido) — ver [`docs/incidente-timeout-webhook.md`](./docs/incidente-timeout-webhook.md)
-- [x] Instagram con trigger "DEMO" vía Chatwoot (cuenta reutilizada de `conect_spa_test`): probado en producción — ver [`docs/instagram-integracion.md`](./docs/instagram-integracion.md)
+- [x] Instagram con trigger "DEMO" vía Chatwoot (cuenta `raquela.v`, App de Meta de Hellokreo): probado en producción — ver [`docs/instagram-integracion.md`](./docs/instagram-integracion.md)
