@@ -116,12 +116,22 @@ el dato real.
 
 **Fix:** `crear_llamada` (y ahora también `reagendar_llamada`) avisan a
 `generateDemoReply` cuando la herramienta tuvo éxito de verdad, vía un
-callback (`setCalendarAction`). El código agrega el link real al final del
-mensaje cuando ese callback se disparó — **ya no depende de `stage`**, que
-resultó no ser confiable (ver siguiente sección). El prompt también le dice
-explícitamente que no prometa mandar un link, que el sistema lo agrega solo.
-Confirmado con una prueba local end-to-end: el link real llega en el
-mensaje final.
+callback (`setCalendarAction`). Primera versión del fix: el código agregaba
+el link real al final del mensaje del cliente cuando ese callback se
+disparaba — ya no dependía de `stage` (que resultó no ser confiable, ver
+siguiente sección).
+
+**Corregido de nuevo el mismo día:** el usuario preguntó si ese link de
+Google Calendar era público y si estaba bien mandárselo al cliente. No lo
+es (requiere login de Google con acceso al calendario), y como el cliente
+nunca se agrega como invitado del evento (no le pedimos su email en este
+flujo), el link **no le funcionaría** aunque se lo mandáramos — y además no
+tiene sentido exponerle a alguien externo el link interno del calendario
+del equipo. Se sacó el link de la respuesta al cliente por completo; ahora
+solo viaja en `calendarAction.link` hacia `notifyTeam()` (aviso interno),
+donde sí tiene sentido porque el equipo sí tiene acceso a su propio
+calendario. El prompt también se ajustó: ya no dice "el sistema agrega el
+link", dice simplemente que no se manda ninguno.
 
 ## Reagendar y cancelar (2026-09-11)
 
@@ -155,6 +165,18 @@ Probado end-to-end en local: agendar (9:00) → reagendar (12:00, mismo event
 id) → cancelar → confirmado que ambos horarios quedan libres de nuevo en el
 calendario real.
 
+## Límite conocido: reservas hechas antes de `bookedEvent` no se pueden reagendar solas
+
+Probado con un cliente real: intentó reagendar una llamada que se había
+creado **antes** de que existiera `conversation.bookedEvent` (o sea, con una
+versión anterior del código) — la IA respondía "no pude encontrar tu llamada
+agendada" porque esa conversación vieja en Redis no tiene ese campo. Se
+solucionó ese caso puntual a mano (`getConversation` + `saveConversation`
+para setear `bookedEvent` con el `eventId` real, ubicado buscando el evento
+en el calendario por fecha/hora). No hace falta una migración general — es
+un caso único que no se va a repetir para reservas nuevas (todas las que se
+creen de acá en adelante ya guardan `bookedEvent` automáticamente).
+
 ## Pendiente
 
 - Probar un caso real de **horario ocupado** (pedir un horario, que
@@ -162,5 +184,3 @@ calendario real.
   una alternativa en vez de trabarse).
 - Horario de atención (9:00-18:00, L-V) hardcodeado en `googleCalendar.js`
   — si cambia, hay que editar el código.
-- `reagendar_llamada`/`cancelar_llamada` solo se probaron en local, no con
-  un cliente real por WhatsApp/Instagram todavía.
