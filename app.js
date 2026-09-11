@@ -2,12 +2,7 @@ require("dotenv").config();
 const crypto = require("crypto");
 const express = require("express");
 
-const {
-  WHATSAPP_PHONE_NUMBER_ID,
-  WHATSAPP_ACCESS_TOKEN,
-  WHATSAPP_WEBHOOK_VERIFY_TOKEN,
-  WHATSAPP_APP_SECRET,
-} = process.env;
+const { WHATSAPP_WEBHOOK_VERIFY_TOKEN, WHATSAPP_APP_SECRET } = process.env;
 
 const app = express();
 
@@ -71,22 +66,4 @@ app.post("/webhook", verifyMetaSignature, (req, res) => {
   res.sendStatus(200);
 });
 
-async function sendWhatsAppText(to, body) {
-  const url = `https://graph.facebook.com/v21.0/${WHATSAPP_PHONE_NUMBER_ID}/messages`;
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${WHATSAPP_ACCESS_TOKEN}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      messaging_product: "whatsapp",
-      to,
-      type: "text",
-      text: { body },
-    }),
-  });
-  return response.json();
-}
-
-module.exports = { app, sendWhatsAppText };
+module.exports = app;
