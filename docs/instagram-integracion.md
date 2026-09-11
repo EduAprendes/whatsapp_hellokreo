@@ -1,6 +1,6 @@
 # Integración con Instagram (flujo "DEMO")
 
-**Estado: en progreso (2026-09-11).** Mismo patrón que WhatsApp
+**Estado: funcionando en producción (2026-09-11).** Mismo patrón que WhatsApp
 (`chatwoot-integracion.md`) — Chatwoot es dueño del canal, `whatsapp_hellokreo`
 es su Agent Bot — pero con dos diferencias importantes: requiere la palabra
 clave **"DEMO"** para arrancar (a diferencia de WhatsApp, que responde
@@ -17,7 +17,7 @@ flujo "API de Instagram con inicio de sesión de Instagram" (sin Página de
 Facebook), con su **propia App de Meta**, distinta de la App de WhatsApp de
 Hellokreo:
 
-- `META_IG_USER_ID` = `1626903829167646`
+- `META_IG_USER_ID` = `1626903829167646` — **ojo, este NO es el id que usa Chatwoot** (ver más abajo, "El id de la cuenta que importa de verdad").
 - `META_APP_SECRET` de esa App (no confundir con `WHATSAPP_APP_SECRET` de Hellokreo)
 - Token de acceso: se refrescó el 2026-09-11 contra `graph.instagram.com/refresh_access_token` (venía válido, quedó con vencimiento el **2026-11-10**)
 
@@ -37,7 +37,7 @@ Instagram, generar un token nuevo — el token actual queda atado a la App de
 
 | Recurso | Id | Nombre |
 |---|---|---|
-| Channel::Instagram | 1 | `instagram_id` 1626903829167646 |
+| Channel::Instagram | 1 | `instagram_id` 17841401180206289 (corregido, ver abajo) |
 | Inbox | 5 | Instagram Hellokreo |
 | AgentBot | 2 | Kreo AI - Instagram |
 
@@ -115,6 +115,32 @@ curl "https://chat.hellokreo.com/webhooks/instagram?hub.mode=subscribe&hub.verif
 Chatwoot con una App de Meta distinta**, va a compartir este mismo secreto —
 tendría que usar la misma App, o revisar esta limitación.
 
+## El id de la cuenta que importa de verdad (no es `META_IG_USER_ID`)
+
+Primer intento de prueba (escribir "Demo" a la cuenta): el webhook llegaba
+bien a Chatwoot (firma válida, evento encolado en Sidekiq, sin ningún error),
+pero **no se creaba ninguna conversación**. La causa: el canal se creó con
+`instagram_id: "1626903829167646"` (el `META_IG_USER_ID` que aparece en el
+panel de Meta, "Identificador de la app de Instagram"), pero el
+`recipient.id` que realmente llega en cada evento de mensaje es **otro
+número distinto**: `17841401180206289` — confirmado leyendo directo
+`docker logs chatwoot-rails-1` durante la prueba real. Chatwoot busca el
+canal por ese id (`Channel::Instagram.find_by(instagram_id: recipient_id)`)
+y, al no encontrar coincidencia, el job simplemente no hace nada — sin error,
+sin log de advertencia.
+
+**Fix:** `Channel::Instagram.find(1).update!(instagram_id: "17841401180206289")`.
+Después de esto, la conversación sí se creó y la IA respondió.
+
+**Lección:** el "Identificador de la app de Instagram" que muestra el panel
+de configuración de Meta (usado para las llamadas salientes a
+`graph.instagram.com`) **no es necesariamente el mismo id que aparece como
+`recipient`/`sender` en los eventos entrantes del webhook**. Si se conecta
+otra cuenta de Instagram en el futuro, mejor confirmar el id real mirando un
+evento real en los logs (`docker logs chatwoot-rails-1 | grep instagram`)
+antes de crear el canal, en vez de asumir que es el mismo que aparece en el
+panel de Meta.
+
 ## Código (`whatsapp_hellokreo`)
 
 - `app.js` → `POST /chatwoot-bot/instagram`: mismo handler que WhatsApp
@@ -129,14 +155,24 @@ tendría que usar la misma App, o revisar esta limitación.
 - `ai.js` → `DEMO_SYSTEM_PROMPT` se generalizó para no mencionar "WhatsApp"
   específicamente (ahora sirve para ambos canales).
 
+## Probado en producción (2026-09-11)
+
+Conversación #99: "Demo" → presentación del vendedor digital 24/7 (respuesta
+de la IA). Confirma que toda la cadena funciona: Meta → Chatwoot
+(`/webhooks/instagram`) → Agent Bot (`/chatwoot-bot/instagram`) → Gemini →
+Chatwoot → Instagram.
+
+**Encontrado en la misma prueba:** el segundo mensaje de esa conversación
+("Quisiera más información por favor") se quedó sin respuesta — resultó ser
+el bug de `waitUntil` documentado en `incidente-timeout-webhook.md` (no
+específico de Instagram). Ya revertido a procesamiento síncrono.
+
 ## Pendiente
 
-- **Confirmar el paso manual en el panel de Meta** (cambiar la Callback URL)
-  — lo hace el usuario, no yo.
-- Probar end-to-end: escribir "DEMO" a la cuenta de Instagram y confirmar que
-  llega a Chatwoot → `/chatwoot-bot/instagram` → Gemini → de vuelta por
-  Instagram.
+- Volver a probar una conversación completa (varios mensajes seguidos) ahora
+  que se revirtió `waitUntil`, para confirmar que ya no se pierde ninguna
+  respuesta.
 - Migrar la conexión a la propia App de Meta de Hellokreo (ver arriba) —
   pospuesto, no urgente.
 - Probar que un mensaje SIN "demo" efectivamente no genera ninguna respuesta
-  (se probó en local con un payload simulado, falta confirmarlo con Instagram real).
+  con Instagram real (se probó en local con un payload simulado).
