@@ -101,6 +101,22 @@ después de confirmar (era una prueba). También verificado en producción
 (Vercel) que la autenticación con Google funciona ahí — sin errores de
 credenciales en `vercel logs`.
 
+## Bug encontrado y arreglado: el modelo decía "te mandé el link" sin mandarlo
+
+Probado con un cliente real por Instagram (2026-09-11): el evento se creaba
+correctamente en el calendario, pero el mensaje final decía *"Te envié el
+link al evento en el chat para que lo guardes"* — sin que ningún link
+apareciera en ningún lado. El modelo confirmaba la acción sin haber incluido
+el dato real.
+
+**Fix:** `crear_llamada` ahora avisa a `generateDemoReply` (vía un callback)
+cuando el evento se creó de verdad, con su `htmlLink`. El código agrega ese
+link real al final del mensaje cuando `stage === "scheduled"` — ya no
+depende de que el modelo se acuerde de incluirlo. El prompt también le dice
+explícitamente que no prometa mandar un link, que el sistema lo agrega solo.
+Confirmado con una prueba local end-to-end: el link real llega en el
+mensaje final.
+
 ## Pendiente
 
 - Probar un caso real de **horario ocupado** (pedir un horario, que
