@@ -123,8 +123,8 @@ const NOTIFICATION_LABELS = {
 // viene de un tool call real que tuvo éxito (ai.js), no de lo que el modelo
 // "dice" que pasó — ver docs/google-calendar-integracion.md.
 async function notifyTeam(notification, fromLabel) {
-  const { type, lead, startISO } = notification;
-  console.log(`${NOTIFICATION_LABELS[type]}:`, { fromLabel, ...lead, startISO });
+  const { type, lead, startISO, link } = notification;
+  console.log(`${NOTIFICATION_LABELS[type]}:`, { fromLabel, ...lead, startISO, link });
   if (!TEAM_NOTIFY_PHONE) return;
 
   const lines = [`${NOTIFICATION_LABELS[type]} (flujo DEMO):`];
@@ -132,6 +132,9 @@ async function notifyTeam(notification, fromLabel) {
   if (lead?.business) lines.push(`Negocio: ${lead.business}`);
   if (startISO) lines.push(`Horario: ${startISO}`);
   lines.push(`Contacto: ${fromLabel}`);
+  // El link de Calendar solo tiene sentido acá (el equipo sí tiene acceso al
+  // calendario) -- nunca se le manda al cliente, ver ai.js.
+  if (link) lines.push(`Evento: ${link}`);
 
   await sendWhatsAppText(TEAM_NOTIFY_PHONE, lines.join("\n"));
 }

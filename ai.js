@@ -89,9 +89,9 @@ Sigue este guion EN ORDEN, sin saltarte pasos ni repetir lo ya dicho en el histo
 2. Califica con 2-3 preguntas cortas, UNA por mensaje (no las amontones): ¿tiene negocio propio?, ¿vende por WhatsApp o Instagram?, ¿siente que pierde clientes fuera de horario o por demoras en responder?
 3. Si califica (tiene negocio, vende por esos canales, y reconoce el problema), ofrece agendar una llamada corta con una persona real del equipo. Pide su nombre y el nombre de su negocio si todavía no los tienes.
 4. Para el horario: usa la herramienta \`consultar_disponibilidad\` con una fecha concreta (resuelve "mañana"/"el viernes" a AAAA-MM-DD vos mismo usando la fecha de hoy de arriba) y ofrécele 2-3 horarios reales de esa lista — nunca inventes un horario.
-5. Cuando el cliente confirme un horario de esa lista, usa \`crear_llamada\` con los 4 datos (fecha, hora, nombre, negocio) para agendarla de verdad. Si la herramienta devuelve que el horario ya no está libre, discúlpate y ofrece otro horario real (podés volver a llamar a \`consultar_disponibilidad\`). Si \`crear_llamada\` confirma éxito, tu mensaje solo confirma la reserva (día y hora) — NUNCA digas que mandaste un link o comprobante, el sistema lo agrega automáticamente después de tu mensaje.
+5. Cuando el cliente confirme un horario de esa lista, usa \`crear_llamada\` con los 4 datos (fecha, hora, nombre, negocio) para agendarla de verdad. Si la herramienta devuelve que el horario ya no está libre, discúlpate y ofrece otro horario real (podés volver a llamar a \`consultar_disponibilidad\`). Si \`crear_llamada\` confirma éxito, tu mensaje solo confirma la reserva (día y hora) — NUNCA digas que mandaste un link o comprobante, no se manda ninguno (el cliente no está invitado al evento, un link de Google Calendar no le serviría).
 6. Si NO califica (sin negocio propio, pura curiosidad), sé amable y breve, sin insistir en agendar.
-7. Si el cliente YA tiene una llamada agendada (revisá el historial) y pide cambiar el horario: consultá disponibilidad de la fecha nueva y usá \`reagendar_llamada\` cuando confirme. Si pide cancelar: usá \`cancelar_llamada\` directo, sin pedir motivo. En ambos casos tu mensaje solo confirma el cambio — nunca prometas mandar un link o comprobante nuevo.
+7. Si el cliente YA tiene una llamada agendada (revisá el historial) y pide cambiar el horario: consultá disponibilidad de la fecha nueva y usá \`reagendar_llamada\` cuando confirme. Si pide cancelar: usá \`cancelar_llamada\` directo, sin pedir motivo. En ambos casos tu mensaje solo confirma el cambio — nunca prometas mandar un link o comprobante.
 
 IMPORTANTE — formato de salida: tu respuesta completa, SIEMPRE (con o sin uso de herramientas antes), tiene que ser ÚNICAMENTE un objeto JSON válido, sin texto antes ni después, sin \`\`\`, exactamente con esta forma:
 {"reply": "<mensaje para el cliente, tono cercano, 2-4 líneas>", "stage": "intro"|"qualifying"|"not_qualified"|"scheduled"|"rescheduled"|"cancelled", "lead": {"name": string|null, "business": string|null, "preferredTime": string|null}}
@@ -198,10 +198,13 @@ async function generateDemoReply(history, conversation) {
     result = await model.generateContent({ contents });
   }
 
+  // El link de Google Calendar NO se manda al cliente: no lo agregamos como
+  // invitado del evento (no le pedimos email en este flujo), asi que el link
+  // no le funcionaria (Google le pediria loguearse con una cuenta sin acceso
+  // a este calendario) y de paso no tiene sentido exponerle a alguien
+  // externo el link interno del calendario del equipo. Solo va en el aviso
+  // interno (notifyTeam, via calendarAction.link) -- ahi si sirve.
   const parsed = parseDemoResponse(stripJsonFences(result.response.text()));
-  if (calendarAction?.link && parsed.reply) {
-    parsed.reply = `${parsed.reply}\n\n${calendarAction.link}`;
-  }
   return { ...parsed, calendarAction };
 }
 
