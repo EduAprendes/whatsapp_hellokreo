@@ -26,7 +26,7 @@ npm run dev
 - [x] Lógica de IA (Gemini 2.5 Flash) conectada a los mensajes entrantes
 - [x] Flujo "escribe DEMO" (docs/plan-agentes-ia-ventas.md, Fase 2): presentación, calificación (2-3 preguntas), captura de lead (nombre/negocio/horario) y aviso al equipo — probado localmente end-to-end
 - [ ] Plantilla propia aprobada (necesaria para iniciar conversación sin que el cliente escriba primero)
-- [ ] Agendamiento real en Google Calendar (credenciales ya ubicadas en `conect_spa_test`) — hoy el flujo DEMO solo captura el horario propuesto, no crea el evento
+- [x] Agendamiento real en Google Calendar: la IA consulta disponibilidad real y crea el evento vía tool-calling de Gemini — ver [`docs/google-calendar-integracion.md`](./docs/google-calendar-integracion.md)
 - [ ] Notificación al equipo por WhatsApp: falta configurar `TEAM_NOTIFY_PHONE` en el `.env` de Vercel (hoy solo se loguea)
 - [ ] El estado de la conversación vive en memoria (`conversations.js`) — se pierde en cada cold start de Vercel; pasar a una base de datos si el volumen lo justifica
 - [x] Integración con Chatwoot (`/chatwoot-bot`) para responder manual desde el inbox: Chatwoot ya es dueño del canal (inbox "WhatsApp Hellokreo" en `chat.hellokreo.com`), Agent Bot creado y probado end-to-end en producción — ver [`docs/chatwoot-integracion.md`](./docs/chatwoot-integracion.md)
