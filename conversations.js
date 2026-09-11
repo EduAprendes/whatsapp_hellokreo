@@ -5,7 +5,7 @@ const conversations = new Map();
 
 function getConversation(phone) {
   if (!conversations.has(phone)) {
-    conversations.set(phone, { mode: "generic", history: [], notified: false });
+    conversations.set(phone, { history: [], notified: false });
   }
   return conversations.get(phone);
 }
