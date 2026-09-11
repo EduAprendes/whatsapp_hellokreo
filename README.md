@@ -29,3 +29,4 @@ npm run dev
 - [ ] Agendamiento real en Google Calendar (credenciales ya ubicadas en `conect_spa_test`) — hoy el flujo DEMO solo captura el horario propuesto, no crea el evento
 - [ ] Notificación al equipo por WhatsApp: falta configurar `TEAM_NOTIFY_PHONE` en el `.env` de Vercel (hoy solo se loguea)
 - [ ] El estado de la conversación vive en memoria (`conversations.js`) — se pierde en cada cold start de Vercel; pasar a una base de datos si el volumen lo justifica
+- [~] Integración con Chatwoot (`/chatwoot-bot`) para responder manual desde el inbox: código listo, faltan los pasos en el panel de Chatwoot — ver [`docs/chatwoot-integracion.md`](./docs/chatwoot-integracion.md)

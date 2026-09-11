@@ -8,7 +8,8 @@ número real de WhatsApp "Hellokreo" (+58 422-6773234) vía WhatsApp Cloud API.
 - [`whatsapp-setup.md`](./whatsapp-setup.md) — cómo se configuró la cuenta de Meta/WhatsApp para este proyecto (qué credenciales existen, dónde viven, lecciones aprendidas).
 - [`arquitectura.md`](./arquitectura.md) — estructura del código, qué hace cada archivo, cómo se despliega en Vercel.
 - [`flujo-demo.md`](./flujo-demo.md) — el guion de calificación de leads que se activa al escribir "DEMO".
-- [`pendientes-e-ideas.md`](./pendientes-e-ideas.md) — qué falta, y la idea de responder manualmente desde Chatwoot.
+- [`pendientes-e-ideas.md`](./pendientes-e-ideas.md) — qué falta.
+- [`chatwoot-integracion.md`](./chatwoot-integracion.md) — integración con Chatwoot (Agent Bot) para responder manual desde el inbox: decisión tomada, código ya hecho, y pasos pendientes en el panel de Chatwoot.
 
 Documento externo relacionado: `D:\Euro\200-🌍AREAS\Kreo\WhatsApp 1\Guía desde cero — Configurar WhatsApp Cloud API.md` (guía genérica, reutilizable para otros proyectos con WhatsApp Cloud API — este `docs/` es específico de Hellokreo).
 

@@ -2,11 +2,16 @@ require("dotenv").config();
 const crypto = require("crypto");
 const express = require("express");
 
-const { generateReply, generateDemoReply } = require("./ai");
 const { sendWhatsAppText } = require("./whatsapp");
-const { getConversation } = require("./conversations");
+const { sendChatwootMessage } = require("./chatwoot");
+const { handleIncomingText } = require("./conversationEngine");
 
-const { WHATSAPP_WEBHOOK_VERIFY_TOKEN, WHATSAPP_APP_SECRET, TEAM_NOTIFY_PHONE } = process.env;
+const {
+  WHATSAPP_WEBHOOK_VERIFY_TOKEN,
+  WHATSAPP_APP_SECRET,
+  TEAM_NOTIFY_PHONE,
+  CHATWOOT_BOT_SHARED_SECRET,
+} = process.env;
 
 const app = express();
 
@@ -63,50 +68,55 @@ async function notifyTeam(lead, fromPhone) {
   await sendWhatsAppText(TEAM_NOTIFY_PHONE, msg);
 }
 
-// Mensajes entrantes de WhatsApp. Se responde 200 al final (no antes): en
-// Vercel, la funcion puede congelarse apenas se envia la respuesta, asi que
-// el trabajo de la IA y el envio tienen que terminar primero.
+// Mensajes entrantes de WhatsApp directo (camino original, previo a Chatwoot).
+// Se deja como respaldo/prueba; una vez el webhook de Meta apunte a Chatwoot,
+// esta ruta deja de recibir trafico real. Se responde 200 al final (no antes):
+// en Vercel la funcion puede congelarse apenas se envia la respuesta.
 app.post("/webhook", verifyMetaSignature, async (req, res) => {
   const entry = req.body?.entry?.[0];
   const change = entry?.changes?.[0]?.value;
   const message = change?.messages?.[0];
 
   if (message?.type === "text") {
-    const text = message.text.body;
-    console.log("Mensaje entrante:", { from: message.from, text });
-
+    console.log("Mensaje entrante (Meta directo):", { from: message.from, text: message.text.body });
     try {
-      const conversation = getConversation(message.from);
-
-      // docs/plan-agentes-ia-ventas.md, Fase 2: escribir "DEMO" activa el
-      // guion de venta/calificación de la propia agencia.
-      if (conversation.mode === "generic" && /\bdemo\b/i.test(text)) {
-        conversation.mode = "demo";
-      }
-
-      conversation.history.push({ role: "user", text });
-
-      if (conversation.mode === "demo") {
-        const { reply, stage, lead } = await generateDemoReply(conversation.history);
-        if (reply) {
-          conversation.history.push({ role: "assistant", text: reply });
-          await sendWhatsAppText(message.from, reply);
-        }
-        if (stage === "scheduled" && !conversation.notified) {
-          conversation.notified = true;
-          await notifyTeam(lead, message.from);
-        }
-      } else {
-        const reply = await generateReply(text);
-        if (reply) {
-          conversation.history.push({ role: "assistant", text: reply });
-          await sendWhatsAppText(message.from, reply);
-        }
-      }
+      const { reply, scheduledLead } = await handleIncomingText(message.from, message.text.body);
+      if (reply) await sendWhatsAppText(message.from, reply);
+      if (scheduledLead) await notifyTeam(scheduledLead, message.from);
     } catch (err) {
       console.error("Error generando/enviando respuesta:", err.message);
     }
   }
+
+  res.sendStatus(200);
+});
+
+// Agent Bot de Chatwoot: Chatwoot es quien habla con Meta (inbox de WhatsApp
+// Cloud API); a nosotros nos reenvia cada mensaje entrante mientras la
+// conversacion siga en estado "pending". Si un agente humano la toma (la pasa
+// a "open"), dejamos de responder ahi — ver docs/pendientes-e-ideas.md.
+app.post("/chatwoot-bot", async (req, res) => {
+  if (CHATWOOT_BOT_SHARED_SECRET && req.query.secret !== CHATWOOT_BOT_SHARED_SECRET) {
+    return res.sendStatus(401);
+  }
+
+  const { event, message_type: messageType, content, conversation } = req.body || {};
+
+  if (event === "message_created" && messageType === "incoming" && content && conversation?.status === "pending") {
+    console.log("Mensaje entrante (Chatwoot):", { conversationId: conversation.id, content });
+    try {
+      const key = `cw-${conversation.id}`;
+      const { reply, scheduledLead } = await handleIncomingText(key, content);
+      if (reply) await sendChatwootMessage(conversation.id, reply);
+      if (scheduledLead) {
+        const contactName = conversation.contact?.name || conversation.meta?.sender?.name;
+        await notifyTeam(scheduledLead, contactName || `conversacion ${conversation.id}`);
+      }
+    } catch (err) {
+      console.error("Error generando/enviando respuesta (Chatwoot):", err.message);
+    }
+  }
+  // conversation.status !== "pending" -> un humano ya la tomo, no respondemos.
 
   res.sendStatus(200);
 });
