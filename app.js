@@ -1,7 +1,6 @@
 require("dotenv").config();
 const crypto = require("crypto");
 const express = require("express");
-const { waitUntil } = require("@vercel/functions");
 
 const { sendWhatsAppText } = require("./whatsapp");
 const { sendChatwootMessage } = require("./chatwoot");
@@ -82,17 +81,23 @@ async function handleMetaMessage(from, text) {
 
 // Mensajes entrantes de WhatsApp directo (camino original, previo a Chatwoot).
 // Se deja como respaldo/prueba; una vez el webhook de Meta apunte a Chatwoot,
-// esta ruta deja de recibir trafico real. Se responde 200 de una vez y el
-// trabajo real sigue en segundo plano (mismo motivo que /chatwoot-bot).
-app.post("/webhook", verifyMetaSignature, (req, res) => {
+// esta ruta deja de recibir trafico real. Se responde 200 al final (no antes):
+// se probo responder antes y seguir en segundo plano con waitUntil de
+// @vercel/functions, pero no fue confiable en este deploy (una de dos
+// respuestas se perdio en silencio, sin error) — ver
+// docs/incidente-timeout-webhook.md. Mas lento pero seguro, y ya no hace
+// falta el atajo: la cuenta tiene keep_pending_on_bot_failure activado, asi
+// que un timeout ya no apaga el bot solo.
+app.post("/webhook", verifyMetaSignature, async (req, res) => {
   const entry = req.body?.entry?.[0];
   const change = entry?.changes?.[0]?.value;
   const message = change?.messages?.[0];
-  res.sendStatus(200);
 
   if (message?.type === "text") {
-    waitUntil(handleMetaMessage(message.from, message.text.body));
+    await handleMetaMessage(message.from, message.text.body);
   }
+
+  res.sendStatus(200);
 });
 
 // Agent Bot de Chatwoot: Chatwoot es quien habla con Meta (inboxes de
@@ -118,22 +123,29 @@ async function handleChatwootMessage(conversation, content, { requireTrigger } =
 
 // Chatwoot solo espera ~5s por este endpoint: si tarda mas o falla, marca la
 // conversacion como "open" y apaga el bot ahi (Webhooks::Trigger#handle_failure
-// en el codigo de Chatwoot) sin avisar en ningun otro lado mas que un mensaje
-// de actividad en el hilo. Por eso respondemos 200 de una vez y el trabajo de
-// verdad (Gemini + enviar la respuesta) sigue en segundo plano con waitUntil.
+// en el codigo de Chatwoot). Se probo responder 200 de una vez y seguir en
+// segundo plano con waitUntil (@vercel/functions), pero resulto poco
+// confiable en produccion: la primera respuesta de una prueba llego bien y
+// la segunda se perdio en silencio, sin ningun error en los logs — ver
+// docs/incidente-timeout-webhook.md. Se volvio al patron sincrono (esperar
+// antes de responder). Es mas lento, pero ya no hace falta el atajo: la
+// cuenta de Chatwoot tiene keep_pending_on_bot_failure activado, asi que un
+// timeout ocasional ya no apaga el bot solo — solo se pierde esa respuesta
+// puntual (mejor que perderlas todas de a poco, como pasaba con waitUntil).
 function chatwootBotHandler({ requireTrigger }) {
-  return (req, res) => {
+  return async (req, res) => {
     if (CHATWOOT_BOT_SHARED_SECRET && req.query.secret !== CHATWOOT_BOT_SHARED_SECRET) {
       return res.sendStatus(401);
     }
 
     const { event, message_type: messageType, content, conversation } = req.body || {};
-    res.sendStatus(200);
 
     // conversation.status !== "pending" -> un humano ya la tomo, no respondemos.
     if (event === "message_created" && messageType === "incoming" && content && conversation?.status === "pending") {
-      waitUntil(handleChatwootMessage(conversation, content, { requireTrigger }));
+      await handleChatwootMessage(conversation, content, { requireTrigger });
     }
+
+    res.sendStatus(200);
   };
 }
 
