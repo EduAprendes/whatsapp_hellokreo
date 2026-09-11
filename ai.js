@@ -124,13 +124,36 @@ async function generateDemoReply(history) {
     result = await model.generateContent({ contents });
   }
 
-  const raw = stripJsonFences(result.response.text());
+  return parseDemoResponse(stripJsonFences(result.response.text()));
+}
+
+// A veces el modelo devuelve casi-JSON con literales de Python (None/True/
+// False en vez de null/true/false) en lugar de JSON estricto. Ya paso en
+// produccion (2026-09-11): mandaba el JSON crudo, sin parsear, directo al
+// cliente. Se intenta reparar antes de rendirse.
+function parseDemoResponse(raw) {
   try {
     return JSON.parse(raw);
   } catch {
-    // Si el modelo no devolvió JSON valido, al menos no perder la respuesta.
-    return { reply: raw, stage: "qualifying", lead: {} };
+    // no-op, seguir con el intento de reparación
   }
+
+  const repaired = raw.replace(/\bNone\b/g, "null").replace(/\bTrue\b/g, "true").replace(/\bFalse\b/g, "false");
+  try {
+    return JSON.parse(repaired);
+  } catch {
+    // no-op, seguir con el ultimo recurso
+  }
+
+  // Ultimo recurso: extraer solo el campo "reply" a mano en vez de mandarle
+  // al cliente un JSON roto sin sentido.
+  const match = raw.match(/"reply"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+  if (match) {
+    return { reply: match[1].replace(/\\"/g, '"').replace(/\\n/g, "\n"), stage: "qualifying", lead: {} };
+  }
+
+  console.error("No se pudo interpretar la respuesta del modelo:", raw);
+  return { reply: "Disculpa, tuve un problema técnico. ¿Me repites lo último?", stage: "qualifying", lead: {} };
 }
 
 module.exports = { generateDemoReply };
